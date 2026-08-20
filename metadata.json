@@ -1,0 +1,7 @@
+{
+  "name": "Rudra Life OS",
+  "description": "Personal offline-first Life Operating System for Class 12 Science student based on BSEB curriculum, master study routine, revision engine, and discipline scorecard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
