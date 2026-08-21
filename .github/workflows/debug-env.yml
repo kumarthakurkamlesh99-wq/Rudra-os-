@@ -1,0 +1,112 @@
+name: Diagnostic Environment Scan
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  diagnose:
+    name: Deep Scan & Gradle Environment Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Deep Scan Project Structure
+        run: |
+          echo "=========================================="
+          echo "   1. RUNNER & WORKSPACE ENVIRONMENT      "
+          echo "=========================================="
+          echo "Hostname: $(hostname)"
+          echo "User: $(whoami)"
+          echo "Working Directory: $(pwd)"
+          echo "Disk Space:"
+          df -h .
+          echo ""
+
+          echo "=========================================="
+          echo "   2. COMPLETE DIRECTORY TREE SCAN        "
+          echo "=========================================="
+          if command -v tree &> /dev/null; then
+            tree -a -I '.git'
+          else
+            find . -not -path '*/.*' -not -path './.git*' | sort
+          fi
+          echo ""
+
+          echo "=========================================="
+          echo "   3. CRITICAL BUILD FILES CHECK          "
+          echo "=========================================="
+          for file in "settings.gradle.kts" "build.gradle.kts" "app/build.gradle.kts" "gradle.properties" "gradle/libs.versions.toml" "gradle/wrapper/gradle-wrapper.properties" "gradlew"; do
+            if [ -f "$file" ]; then
+              echo "✅ FOUND: $file ($(ls -lh "$file" | awk '{print $5, $1}'))"
+            else
+              echo "❌ MISSING: $file"
+            fi
+          done
+          echo ""
+
+          echo "=========================================="
+          echo "   4. GRADLE WRAPPER DIRECTORY SCAN       "
+          echo "=========================================="
+          ls -la gradle/ gradle/wrapper/ 2>/dev/null || echo "No gradle/ directory structure found"
+          echo ""
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+          cache-read-only: false
+
+      - name: Ensure Gradle Wrapper & Executable
+        run: |
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Generating Gradle Wrapper binaries..."
+            gradle wrapper --gradle-version 8.11.1 --distribution-type bin || true
+          fi
+          if [ -f "gradlew" ]; then
+            chmod +x gradlew
+            echo "✅ gradlew found and permissions set:"
+            ls -la gradlew
+          else
+            echo "❌ gradlew not found!"
+            exit 1
+          fi
+
+      - name: Ensure Environment Configuration
+        run: |
+          if [ ! -f ".env" ] && [ -f ".env.example" ]; then
+            echo "Creating .env from .env.example..."
+            cp .env.example .env
+          elif [ ! -f ".env" ]; then
+            touch .env
+          fi
+
+      - name: Execute './gradlew help'
+        run: |
+          echo "Running ./gradlew help..."
+          ./gradlew help --stacktrace --info
+
+      - name: Verify Project Modules with './gradlew projects'
+        run: |
+          echo "Running ./gradlew projects..."
+          ./gradlew projects --stacktrace
