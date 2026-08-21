@@ -35,6 +35,10 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --licenses || true
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -43,23 +47,59 @@ jobs:
 
       - name: Prepare Gradle Wrapper
         run: |
-          echo "Checking Gradle wrapper components..."
           if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
             echo "Generating Gradle Wrapper binaries..."
-            gradle wrapper --gradle-version 8.11.1 --distribution-type bin
+            gradle wrapper --gradle-version 8.11.1 --distribution-type bin || true
           fi
           chmod +x gradlew
 
-      - name: Initialize Environment Secrets File
+      - name: Prepare Environment and Google Services Configurations
         run: |
+          # 1. Ensure .env exists
           if [ ! -f ".env" ]; then
             if [ -f ".env.example" ]; then
-              echo "Initializing .env from .env.example"
+              echo "Creating .env from .env.example"
               cp .env.example .env
             else
-              echo "Creating blank .env"
-              touch .env
+              echo "Creating fallback .env"
+              echo "GEMINI_API_KEY=dummy_key" > .env
             fi
+          fi
+
+          # 2. Ensure fallback google-services.json exists if none provided
+          if [ ! -f "app/google-services.json" ]; then
+            echo "Generating placeholder app/google-services.json for build compatibility..."
+            cat << 'EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "placeholder-project",
+              "storage_bucket": "placeholder-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:abcdef",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.rudralifeos.bxzkpm"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  {
+                    "current_key": "AIzaSyDummyApiKeyPlaceholder"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": []
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
           fi
 
       - name: Setup Signing Configuration
@@ -80,16 +120,16 @@ jobs:
             echo "SIGNING_CONFIGURED=false" >> $GITHUB_ENV
           fi
 
-      - name: Clean & Assemble Debug APK
-        run: ./gradlew clean assembleDebug --stacktrace --no-daemon
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-configuration-cache --stacktrace --no-daemon
 
-      - name: Assemble Release APK
+      - name: Build Release APK
         env:
           KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --stacktrace --no-daemon
+        run: ./gradlew assembleRelease --no-configuration-cache --stacktrace --no-daemon
 
       - name: Collect APK Artifacts
         run: |
@@ -101,7 +141,7 @@ jobs:
             echo "Found Debug APK: $DEBUG_APK"
             cp "$DEBUG_APK" artifacts/app-debug.apk
           else
-            echo "::error::Debug APK not found!"
+            echo "::error::Debug APK was not generated!"
             exit 1
           fi
 
@@ -111,7 +151,7 @@ jobs:
             echo "Found Release APK: $RELEASE_APK"
             cp "$RELEASE_APK" artifacts/app-release.apk
           else
-            echo "::error::Release APK not found!"
+            echo "::error::Release APK was not generated!"
             exit 1
           fi
 
