@@ -51,6 +51,15 @@ jobs:
             chmod +x gradlew
           fi
 
+      - name: Ensure Environment Configuration
+        run: |
+          if [ ! -f ".env" ] && [ -f ".env.example" ]; then
+            echo "Copying .env.example to .env..."
+            cp .env.example .env
+          elif [ ! -f ".env" ]; then
+            touch .env
+          fi
+
       - name: Check and Decode Release Keystore
         id: setup_signing
         env:
