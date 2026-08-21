@@ -26,6 +26,16 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Diagnostic - Inspect workspace & Gradle structure
+        run: |
+          echo "=== Workspace Root Listing ==="
+          ls -la
+          echo "=== Gradle Wrapper Listing ==="
+          ls -la gradle/wrapper/ 2>/dev/null || ls -la gradle/ 2>/dev/null || echo "No gradle directory found"
+          echo "=== Environment Details ==="
+          pwd
+          whoami
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
