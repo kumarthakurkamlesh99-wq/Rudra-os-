@@ -26,15 +26,14 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Diagnostic - Inspect workspace & Gradle structure
+      - name: List Directory Contents
         run: |
-          echo "=== Workspace Root Listing ==="
+          echo "=== Root Directory Listing ==="
           ls -la
-          echo "=== Gradle Wrapper Listing ==="
-          ls -la gradle/wrapper/ 2>/dev/null || ls -la gradle/ 2>/dev/null || echo "No gradle directory found"
-          echo "=== Environment Details ==="
-          pwd
-          whoami
+          echo "=== Directory Tree Structure ==="
+          find . -maxdepth 3 -not -path '*/.*' -not -path './.git*' | sort
+          echo "=== Gradle Directory Contents ==="
+          ls -la gradle/ gradle/wrapper/ 2>/dev/null || echo "No gradle directory found"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -51,7 +50,7 @@ jobs:
           gradle-version: '8.11.1'
           cache-read-only: false
 
-      - name: Ensure Gradle Wrapper
+      - name: Ensure Gradle Wrapper and Executable
         run: |
           if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
             echo "Generating Gradle Wrapper..."
@@ -59,6 +58,11 @@ jobs:
           fi
           if [ -f "gradlew" ]; then
             chmod +x gradlew
+            echo "gradlew is present and executable:"
+            ls -la gradlew
+          else
+            echo "::error::gradlew executable not found!"
+            exit 1
           fi
 
       - name: Ensure Environment Configuration
