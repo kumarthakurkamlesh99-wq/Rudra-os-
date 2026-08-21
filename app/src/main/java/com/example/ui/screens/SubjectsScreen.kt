@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -7,13 +8,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -25,6 +29,7 @@ import com.example.ui.components.GlassCard
 import com.example.ui.components.SectionHeader
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.RudraViewModel
+import com.example.ui.viewmodel.Screen
 import kotlinx.coroutines.launch
 
 @Composable
@@ -45,21 +50,30 @@ fun SubjectsScreen(
 
     var selectedChapterForAi by remember { mutableStateOf<ChapterEntity?>(null) }
     var showAiModal by remember { mutableStateOf(false) }
-    var showAddChapterDialog by remember { mutableStateOf(false) }
+    var showEditChapterModal by remember { mutableStateOf<ChapterEntity?>(null) }
+    var filterStatus by remember { mutableStateOf("All") }
 
     // Progress calculations
     val totalChapters = subjectChapters.size
     val completedCount = subjectChapters.count { it.status == ChapterEntity.STATUS_COMPLETED || it.status == ChapterEntity.STATUS_REVISED }
     val progressFraction = if (totalChapters > 0) completedCount.toFloat() / totalChapters else 0f
 
+    val filteredChapters = when (filterStatus) {
+        "Completed" -> subjectChapters.filter { it.status == ChapterEntity.STATUS_COMPLETED || it.status == ChapterEntity.STATUS_REVISED }
+        "Learning" -> subjectChapters.filter { it.status == ChapterEntity.STATUS_LEARNING }
+        "Not Started" -> subjectChapters.filter { it.status == ChapterEntity.STATUS_NOT_STARTED }
+        "Weak" -> subjectChapters.filter { it.isWeak }
+        else -> subjectChapters
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(vertical = 16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(vertical = 14.dp)
     ) {
-        // Subject Selector Tabs
+        // PCB Subject Tabs
         item {
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -67,18 +81,36 @@ fun SubjectsScreen(
             ) {
                 items(allSubjects) { subject ->
                     val isSelected = subject.id == currentSubjectId
+                    val count = allChapters.count { it.subjectId == subject.id }
+                    val done = allChapters.count { it.subjectId == subject.id && (it.status == ChapterEntity.STATUS_COMPLETED || it.status == ChapterEntity.STATUS_REVISED) }
+                    
                     FilterChip(
                         selected = isSelected,
                         onClick = { selectedSubjectId = subject.id },
                         label = {
                             Text(
-                                text = subject.name,
+                                text = "${subject.name} ($done/$count)",
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                 fontSize = 14.sp
                             )
                         },
+                        leadingIcon = {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        when (subject.name) {
+                                            "Physics" -> AccentElectricBlue
+                                            "Chemistry" -> ScoreGreen
+                                            "Biology" -> Color(0xFFAB47BC)
+                                            else -> AccentCyan
+                                        }
+                                    )
+                            )
+                        },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = AccentNavy.copy(alpha = 0.3f),
+                            selectedContainerColor = AccentNavy.copy(alpha = 0.35f),
                             selectedLabelColor = AccentElectricBlue
                         ),
                         modifier = Modifier.testTag("subject_tab_${subject.name.lowercase()}")
@@ -91,7 +123,7 @@ fun SubjectsScreen(
         if (currentSubject != null) {
             item {
                 GlassCard(
-                    backgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    backgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(
@@ -101,13 +133,13 @@ fun SubjectsScreen(
                         ) {
                             Column {
                                 Text(
-                                    text = currentSubject.name,
-                                    style = MaterialTheme.typography.headlineMedium,
+                                    text = "${currentSubject.name} Syllabus",
+                                    style = MaterialTheme.typography.headlineSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = currentSubject.code + " • " + currentSubject.description,
+                                    text = "${currentSubject.description} • Class 12 Board Prep",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -115,14 +147,14 @@ fun SubjectsScreen(
 
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
-                                color = AccentNavy.copy(alpha = 0.2f)
+                                color = AccentNavy.copy(alpha = 0.25f)
                             ) {
                                 Text(
-                                    text = "$completedCount/$totalChapters Completed",
+                                    text = "$completedCount/$totalChapters Completed (${(progressFraction * 100).toInt()}%)",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = AccentElectricBlue,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                 )
                             }
                         }
@@ -131,42 +163,61 @@ fun SubjectsScreen(
                             progress = { progressFraction },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(8.dp),
-                            color = AccentElectricBlue,
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = when (currentSubject.name) {
+                                "Physics" -> AccentElectricBlue
+                                "Chemistry" -> ScoreGreen
+                                "Biology" -> Color(0xFFAB47BC)
+                                else -> AccentCyan
+                            },
                             trackColor = MaterialTheme.colorScheme.surface
                         )
+
+                        // Quick Filter Chips
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf("All", "Learning", "Completed", "Weak").forEach { status ->
+                                FilterChip(
+                                    selected = filterStatus == status,
+                                    onClick = { filterStatus = status },
+                                    label = { Text(status, fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Chapter List
+        // Chapters List Header
         item {
             SectionHeader(
-                title = "Syllabus Chapters (${subjectChapters.size})",
-                actionText = "+ Add Chapter",
-                onActionClick = { showAddChapterDialog = true }
+                title = "${currentSubject?.name ?: "Subject"} Chapters (${filteredChapters.size})",
+                actionText = "Weak Area Radar",
+                onActionClick = { viewModel.navigateTo(Screen.WeakChapters) }
             )
         }
 
-        items(subjectChapters) { chapter ->
-            ChapterItemCard(
+        // Chapters List
+        items(filteredChapters, key = { it.id }) { chapter ->
+            DetailedChapterCard(
                 chapter = chapter,
                 subjectName = currentSubject?.name ?: "Subject",
-                onStatusChange = { newStatus ->
-                    val newProgress = when (newStatus) {
-                        ChapterEntity.STATUS_COMPLETED -> 100
-                        ChapterEntity.STATUS_REVISED -> 100
-                        ChapterEntity.STATUS_IN_PROGRESS -> 50
-                        else -> 0
-                    }
-                    coroutineScope.launch {
-                        viewModel.repository.updateChapterStatus(chapter.id, newStatus, newProgress)
-                    }
-                },
+                onIncrementLecture = { viewModel.incrementWatchedLecture(chapter.id) },
+                onEditDetails = { showEditChapterModal = chapter },
                 onTriggerAi = {
                     selectedChapterForAi = chapter
                     showAiModal = true
+                },
+                onQuickFixToday = {
+                    viewModel.addChapterToTodayTasks(chapter, currentSubject?.name ?: "PCB")
                 },
                 onQuickScheduleRevision = {
                     coroutineScope.launch {
@@ -174,14 +225,27 @@ fun SubjectsScreen(
                             chapterId = chapter.id,
                             subjectName = currentSubject?.name ?: "Subject",
                             chapterTitle = chapter.title,
-                            intervalLabel = "Same Day",
+                            intervalLabel = "Revision 1 (Same Day)",
                             daysToAdd = 0,
-                            notes = "Spaced repetition initiated from Subject Hub"
+                            notes = "PCB Spaced Revision cycle"
                         )
                     }
                 }
             )
         }
+    }
+
+    // Edit Chapter Progress Modal
+    if (showEditChapterModal != null) {
+        val ch = showEditChapterModal!!
+        EditChapterProgressDialog(
+            chapter = ch,
+            onDismiss = { showEditChapterModal = null },
+            onSave = { updated ->
+                viewModel.updateChapter(updated)
+                showEditChapterModal = null
+            }
+        )
     }
 
     // AI Study Assistant Dialog
@@ -193,11 +257,14 @@ fun SubjectsScreen(
                 viewModel.clearAiResult()
             },
             title = {
-                Text(
-                    text = "AI Study Hub: ${ch.title}",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AccentElectricBlue)
+                    Text(
+                        text = "AI Study Hub: ${ch.title}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             },
             text = {
                 Column(
@@ -222,7 +289,7 @@ fun SubjectsScreen(
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(4.dp)
                         ) {
-                            Text("Quiz", fontSize = 11.sp)
+                            Text("PYQ Quiz", fontSize = 11.sp)
                         }
                         Button(
                             onClick = { viewModel.requestAiFlashcards(currentSubject?.name ?: "Physics", ch.title) },
@@ -260,7 +327,7 @@ fun SubjectsScreen(
                         }
                     } else {
                         Text(
-                            text = "Tap Summary, Quiz, or Cards above to generate high-yield Class 12 board study materials on demand.",
+                            text = "Tap Summary, PYQ Quiz, or Cards above to generate high-yield Class 12 board study materials on demand with Gemini 2.5 Flash.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -279,48 +346,37 @@ fun SubjectsScreen(
             }
         )
     }
-
-    if (showAddChapterDialog) {
-        AddChapterDialog(
-            subjectId = currentSubjectId,
-            onDismiss = { showAddChapterDialog = false },
-            onSave = { newChapter ->
-                coroutineScope.launch {
-                    viewModel.repository.insertChapter(newChapter)
-                }
-                showAddChapterDialog = false
-            }
-        )
-    }
 }
 
 @Composable
-fun ChapterItemCard(
+fun DetailedChapterCard(
     chapter: ChapterEntity,
     subjectName: String,
-    onStatusChange: (String) -> Unit,
+    onIncrementLecture: () -> Unit,
+    onEditDetails: () -> Unit,
     onTriggerAi: () -> Unit,
+    onQuickFixToday: () -> Unit,
     onQuickScheduleRevision: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    val statusColor = when (chapter.status) {
-        ChapterEntity.STATUS_COMPLETED -> ScoreGreen
-        ChapterEntity.STATUS_REVISED -> AccentElectricBlue
-        ChapterEntity.STATUS_IN_PROGRESS -> ScoreYellow
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    val (heatColor, heatLabel) = when (chapter.heatmapColorType) {
+        "GREEN" -> Pair(ScoreGreen, "Strong")
+        "YELLOW" -> Pair(ScoreYellow, "Moderate")
+        else -> Pair(ScoreRed, "Weak")
     }
 
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // Header row with Chapter Number, Title, and Heatmap Pill
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -328,19 +384,20 @@ fun ChapterItemCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(10.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(
                                 text = "${chapter.chapterNumber}",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -356,97 +413,172 @@ fun ChapterItemCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text(
-                                text = chapter.status,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = statusColor,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            if (chapter.priority == "Weak Area") {
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = ScoreRedBg.copy(alpha = 0.2f)
-                                ) {
-                                    Text(
-                                        text = "Weak Area",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = ScoreRed,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            // Status Badge
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = heatColor.copy(alpha = 0.15f),
+                                border = BorderStroke(0.5.dp, heatColor.copy(alpha = 0.5f))
+                            ) {
+                                Text(
+                                    text = "${chapter.status} • $heatLabel",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = heatColor,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+
+                            // Confidence Rating Stars
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                (1..5).forEach { star ->
+                                    Icon(
+                                        imageVector = if (star <= chapter.confidenceRating) Icons.Default.Star else Icons.Outlined.StarOutline,
+                                        contentDescription = null,
+                                        tint = if (star <= chapter.confidenceRating) ScoreYellow else MaterialTheme.colorScheme.outline,
+                                        modifier = Modifier.size(12.dp)
                                     )
                                 }
-                            }
-                            if (chapter.revisionCount > 0) {
-                                Text(
-                                    text = "• ${chapter.revisionCount} revisions",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
                         }
                     }
                 }
 
-                IconButton(onClick = { expanded = !expanded }) {
+                IconButton(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.size(36.dp)
+                ) {
                     Icon(
                         imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = "Options"
+                        contentDescription = "Expand Chapter Details"
                     )
                 }
             }
 
-            if (chapter.notes.isNotBlank()) {
-                Text(
-                    text = chapter.notes,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            if (expanded) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            // Quick Progress & Checklist Badges
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Lecture progress
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    val statuses = listOf(
-                        ChapterEntity.STATUS_NOT_STARTED,
-                        ChapterEntity.STATUS_IN_PROGRESS,
-                        ChapterEntity.STATUS_COMPLETED,
-                        ChapterEntity.STATUS_REVISED
+                    Icon(Icons.Default.PlayCircle, contentDescription = null, modifier = Modifier.size(14.dp), tint = AccentCyan)
+                    Text(
+                        text = "Lec: ${chapter.watchedLectures}/${chapter.totalLectures}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Medium
                     )
 
-                    statuses.forEach { s ->
-                        FilterChip(
-                            selected = chapter.status == s,
-                            onClick = { onStatusChange(s) },
-                            label = { Text(s, fontSize = 11.sp) },
-                            modifier = Modifier.weight(1f)
-                        )
+                    if (chapter.watchedLectures < chapter.totalLectures) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = AccentNavy.copy(alpha = 0.2f),
+                            modifier = Modifier.clickable { onIncrementLecture() }
+                        ) {
+                            Text(
+                                text = "+1 Done",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = AccentElectricBlue,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // Checkpoint pills
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    MiniCheckPill(label = "NCERT", isDone = chapter.ncertRead)
+                    MiniCheckPill(label = "Notes", isDone = chapter.notesStatus == ChapterEntity.NOTES_COMPLETED)
+                    MiniCheckPill(label = "PYQ", isDone = chapter.pyqStatus == ChapterEntity.PYQ_COMPLETED)
+                    MiniCheckPill(label = "R1", isDone = chapter.revision1Done)
+                }
+            }
+
+            // Progress Bar
+            LinearProgressIndicator(
+                progress = { (chapter.progressPercent / 100f).coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                color = heatColor,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+
+            // Expanded Full Controls
+            AnimatedVisibility(visible = expanded) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(top = 4.dp)
                 ) {
-                    OutlinedButton(
-                        onClick = onQuickScheduleRevision,
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
+                    // Detailed Tracking Matrix
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Spaced Repeat", fontSize = 11.sp)
+                        Column {
+                            Text("NCERT Read: ${if (chapter.ncertRead) "Yes" else "Pending"}", style = MaterialTheme.typography.bodySmall)
+                            Text("NCERT Revised: ${if (chapter.ncertRevised) "Yes" else "Pending"}", style = MaterialTheme.typography.bodySmall)
+                            Text("Difficulty: ${chapter.difficultyRating}/5", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Column {
+                            Text("Notes: ${chapter.notesStatus}", style = MaterialTheme.typography.bodySmall)
+                            Text("Mock Test: ${chapter.mockTestStatus}", style = MaterialTheme.typography.bodySmall)
+                            Text("Study Hours: ${chapter.totalStudyHours}h", style = MaterialTheme.typography.bodySmall)
+                        }
                     }
 
-                    Button(
-                        onClick = onTriggerAi,
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                    // Revision Milestone Indicator
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("AI Study Hub", fontSize = 11.sp)
+                        RevisionMilestoneBadge("R1 (Day 1)", chapter.revision1Done, Modifier.weight(1f))
+                        RevisionMilestoneBadge("R2 (Day 7)", chapter.revision2Done, Modifier.weight(1f))
+                        RevisionMilestoneBadge("R3 (Day 30)", chapter.revision3Done, Modifier.weight(1f))
+                    }
+
+                    // Action buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onEditDetails,
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Edit Status", fontSize = 11.sp)
+                        }
+
+                        Button(
+                            onClick = onQuickFixToday,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = ScoreRedBg, contentColor = Color.White),
+                            contentPadding = PaddingValues(vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Fix Today", fontSize = 11.sp)
+                        }
+
+                        Button(
+                            onClick = onTriggerAi,
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("AI Hub", fontSize = 11.sp)
+                        }
                     }
                 }
             }
@@ -455,58 +587,283 @@ fun ChapterItemCard(
 }
 
 @Composable
-fun AddChapterDialog(
-    subjectId: Long,
+fun MiniCheckPill(label: String, isDone: Boolean) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = if (isDone) ScoreGreen.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(0.5.dp, if (isDone) ScoreGreen.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+        ) {
+            Icon(
+                imageVector = if (isDone) Icons.Default.Check else Icons.Default.Close,
+                contentDescription = null,
+                tint = if (isDone) ScoreGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(10.dp)
+            )
+            Spacer(modifier = Modifier.width(2.dp))
+            Text(
+                text = label,
+                fontSize = 9.sp,
+                fontWeight = if (isDone) FontWeight.Bold else FontWeight.Normal,
+                color = if (isDone) ScoreGreen else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun RevisionMilestoneBadge(label: String, isDone: Boolean, modifier: Modifier = Modifier) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (isDone) ScoreGreen.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (isDone) ScoreGreen.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = if (isDone) Icons.Default.CheckCircle else Icons.Outlined.Circle,
+                contentDescription = null,
+                tint = if (isDone) ScoreGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(12.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 10.sp,
+                fontWeight = if (isDone) FontWeight.Bold else FontWeight.Normal,
+                color = if (isDone) ScoreGreen else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun EditChapterProgressDialog(
+    chapter: ChapterEntity,
     onDismiss: () -> Unit,
     onSave: (ChapterEntity) -> Unit
 ) {
-    var title by remember { mutableStateOf("") }
-    var chapterNumber by remember { mutableStateOf("1") }
-    var notes by remember { mutableStateOf("") }
-    var priority by remember { mutableStateOf("Normal") }
+    var status by remember { mutableStateOf(chapter.status) }
+    var progressPercent by remember { mutableStateOf(chapter.progressPercent.toString()) }
+    var totalLectures by remember { mutableStateOf(chapter.totalLectures.toString()) }
+    var watchedLectures by remember { mutableStateOf(chapter.watchedLectures.toString()) }
+    var ncertRead by remember { mutableStateOf(chapter.ncertRead) }
+    var ncertRevised by remember { mutableStateOf(chapter.ncertRevised) }
+    var notesStatus by remember { mutableStateOf(chapter.notesStatus) }
+    var pyqStatus by remember { mutableStateOf(chapter.pyqStatus) }
+    var mockTestStatus by remember { mutableStateOf(chapter.mockTestStatus) }
+    var r1Done by remember { mutableStateOf(chapter.revision1Done) }
+    var r2Done by remember { mutableStateOf(chapter.revision2Done) }
+    var r3Done by remember { mutableStateOf(chapter.revision3Done) }
+    var confidence by remember { mutableStateOf(chapter.confidenceRating) }
+    var difficulty by remember { mutableStateOf(chapter.difficultyRating) }
+    var studyHours by remember { mutableStateOf(chapter.totalStudyHours.toString()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add New Chapter") },
+        title = { Text("Edit: ${chapter.title}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = chapterNumber,
-                    onValueChange = { chapterNumber = it },
-                    label = { Text("Chapter #") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Chapter Title") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("Key formulas / focus topics") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 480.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item {
+                    Text("Status", style = MaterialTheme.typography.labelMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf(ChapterEntity.STATUS_NOT_STARTED, ChapterEntity.STATUS_LEARNING, ChapterEntity.STATUS_COMPLETED).forEach { s ->
+                            FilterChip(
+                                selected = status == s,
+                                onClick = {
+                                    status = s
+                                    if (s == ChapterEntity.STATUS_COMPLETED) progressPercent = "100"
+                                    if (s == ChapterEntity.STATUS_NOT_STARTED) progressPercent = "0"
+                                },
+                                label = { Text(s, fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = watchedLectures,
+                            onValueChange = { watchedLectures = it },
+                            label = { Text("Watched Lec") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = totalLectures,
+                            onValueChange = { totalLectures = it },
+                            label = { Text("Total Lec") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = progressPercent,
+                            onValueChange = { progressPercent = it },
+                            label = { Text("Progress %") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = studyHours,
+                            onValueChange = { studyHours = it },
+                            label = { Text("Study Hours") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                item {
+                    Text("Checkpoints", style = MaterialTheme.typography.labelMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = ncertRead, onCheckedChange = { ncertRead = it })
+                        Text("NCERT Read", style = MaterialTheme.typography.bodyMedium)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Checkbox(checked = ncertRevised, onCheckedChange = { ncertRevised = it })
+                        Text("NCERT Revised", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Notes Status", style = MaterialTheme.typography.labelSmall)
+                            listOf(ChapterEntity.NOTES_NOT_STARTED, ChapterEntity.NOTES_IN_PROGRESS, ChapterEntity.NOTES_COMPLETED).forEach { ns ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = notesStatus == ns, onClick = { notesStatus = ns })
+                                    Text(ns, fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("PYQ Status", style = MaterialTheme.typography.labelSmall)
+                            listOf(ChapterEntity.PYQ_PENDING, ChapterEntity.PYQ_COMPLETED).forEach { ps ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = pyqStatus == ps, onClick = { pyqStatus = ps })
+                                    Text(ps, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Text("Spaced Revisions", style = MaterialTheme.typography.labelMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        FilterChip(
+                            selected = r1Done,
+                            onClick = { r1Done = !r1Done },
+                            label = { Text("R1 Done", fontSize = 10.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = r2Done,
+                            onClick = { r2Done = !r2Done },
+                            label = { Text("R2 Done", fontSize = 10.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = r3Done,
+                            onClick = { r3Done = !r3Done },
+                            label = { Text("R3 Done", fontSize = 10.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                item {
+                    Text("Confidence Rating (1 to 5)", style = MaterialTheme.typography.labelMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        (1..5).forEach { star ->
+                            IconButton(onClick = { confidence = star }, modifier = Modifier.size(36.dp)) {
+                                Icon(
+                                    imageVector = if (star <= confidence) Icons.Default.Star else Icons.Outlined.StarOutline,
+                                    contentDescription = null,
+                                    tint = if (star <= confidence) ScoreYellow else MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Text("Difficulty Rating (1 to 5)", style = MaterialTheme.typography.labelMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        (1..5).forEach { diff ->
+                            IconButton(onClick = { difficulty = diff }, modifier = Modifier.size(36.dp)) {
+                                Icon(
+                                    imageVector = if (diff <= difficulty) Icons.Default.Warning else Icons.Outlined.WarningAmber,
+                                    contentDescription = null,
+                                    tint = if (diff <= difficulty) ScoreRed else MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (title.isNotBlank()) {
-                        onSave(
-                            ChapterEntity(
-                                subjectId = subjectId,
-                                chapterNumber = chapterNumber.toIntOrNull() ?: 1,
-                                title = title,
-                                notes = notes,
-                                priority = priority
-                            )
+                    val watched = watchedLectures.toIntOrNull() ?: chapter.watchedLectures
+                    val total = totalLectures.toIntOrNull() ?: chapter.totalLectures
+                    val prog = progressPercent.toIntOrNull() ?: chapter.progressPercent
+                    val hrs = studyHours.toDoubleOrNull() ?: chapter.totalStudyHours
+
+                    onSave(
+                        chapter.copy(
+                            status = status,
+                            progressPercent = prog.coerceIn(0, 100),
+                            watchedLectures = watched,
+                            totalLectures = total,
+                            ncertRead = ncertRead,
+                            ncertRevised = ncertRevised,
+                            notesStatus = notesStatus,
+                            pyqStatus = pyqStatus,
+                            mockTestStatus = mockTestStatus,
+                            revision1Done = r1Done,
+                            revision2Done = r2Done,
+                            revision3Done = r3Done,
+                            confidenceRating = confidence,
+                            difficultyRating = difficulty,
+                            totalStudyHours = hrs
                         )
-                    }
+                    )
                 }
             ) {
-                Text("Add Chapter")
+                Text("Save Changes")
             }
         },
         dismissButton = {

@@ -19,9 +19,11 @@ import com.example.data.local.entities.*
         ScorecardEntity::class,
         JournalEntryEntity::class,
         BrainDumpEntity::class,
-        ResourceEntity::class
+        ResourceEntity::class,
+        MockTestEntity::class,
+        StreakRecordEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -35,6 +37,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun journalDao(): JournalDao
     abstract fun brainDumpDao(): BrainDumpDao
     abstract fun resourceDao(): ResourceDao
+    abstract fun mockTestDao(): MockTestDao
+    abstract fun streakDao(): StreakDao
 
     companion object {
         @Volatile
@@ -55,4 +59,3 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 }
-

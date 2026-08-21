@@ -1,6 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
@@ -9,6 +10,7 @@ import com.example.ai.GeminiAiService
 import com.example.data.backup.BackupManager
 import com.example.data.local.AppDatabase
 import com.example.data.local.entities.*
+import com.example.data.model.*
 import com.example.data.preferences.UserPreferences
 import com.example.data.repository.RudraRepository
 import kotlinx.coroutines.Job
@@ -64,8 +66,30 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
     val permissionPromptShown: StateFlow<Boolean> = preferences.permissionPromptShown
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    // Mission & Exam Countdown Flows
+    val targetBoard: StateFlow<String> = repository.targetBoard
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "BSEB Class 12 Board 2027")
+    val targetScore: StateFlow<String> = repository.targetScore
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "85%+")
+    val boardExamDate: StateFlow<String> = repository.boardExamDate
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "2027-02-15")
+    val physicsExamDate: StateFlow<String> = repository.physicsExamDate
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "2027-02-18")
+    val chemistryExamDate: StateFlow<String> = repository.chemistryExamDate
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "2027-02-22")
+    val biologyExamDate: StateFlow<String> = repository.biologyExamDate
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "2027-02-26")
+    val weeklyChapterTarget: StateFlow<Int> = repository.weeklyChapterTarget
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 2)
+    val weeklyLectureTarget: StateFlow<Int> = repository.weeklyLectureTarget
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 25)
+    val weeklyMockTarget: StateFlow<Int> = repository.weeklyMockTarget
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 2)
+
     init {
-        // Initialize Real Android Notification Channels and WorkManager sync
+        viewModelScope.launch {
+            repository.seedDatabaseIfEmpty()
+        }
         com.example.notification.NotificationHelper.createNotificationChannels(application)
         com.example.notification.workers.DailyNotificationSyncWorker.schedulePeriodicWork(application)
         viewModelScope.launch {
@@ -91,6 +115,12 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
     val weakChapters: StateFlow<List<ChapterEntity>> = repository.weakChapters
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allMockTests: StateFlow<List<MockTestEntity>> = repository.allMockTests
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allStreaks: StateFlow<List<StreakRecordEntity>> = repository.allStreaks
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val dueRevisions: StateFlow<List<RevisionLogEntity>> = repository.getDueRevisions()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -98,6 +128,12 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allScorecards: StateFlow<List<ScorecardEntity>> = repository.allScorecards
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val last7DaysScorecards: StateFlow<List<ScorecardEntity>> = repository.last7DaysScorecards
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val last30DaysScorecards: StateFlow<List<ScorecardEntity>> = repository.last30DaysScorecards
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allPresets: StateFlow<List<TimelinePresetEntity>> = repository.allPresets
@@ -120,8 +156,7 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
                 repository.getBlocksForPreset(presetId)
             } else {
                 activePreset.flatMapLatest { active ->
-                    if (active != null) repository.getBlocksForPreset(active.id)
-                    else flowOf(emptyList())
+                    if (active != null) repository.getBlocksForPreset(active.id) else flowOf(emptyList())
                 }
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -138,14 +173,11 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
     val overdueTasks: StateFlow<List<TaskEntity>> = repository.getOverdueTasks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allSessions: StateFlow<List<StudySessionEntity>> = repository.allSessions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val todayScorecard: StateFlow<ScorecardEntity?> = repository.getTodayScorecard()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
-    val last7DaysScorecards: StateFlow<List<ScorecardEntity>> = repository.last7DaysScorecards
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val last30DaysScorecards: StateFlow<List<ScorecardEntity>> = repository.last30DaysScorecards
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val todayJournal: StateFlow<JournalEntryEntity?> = repository.getTodayJournalEntry()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -156,10 +188,10 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
     val unprocessedBrainDumps: StateFlow<List<BrainDumpEntity>> = repository.unprocessedBrainDumps
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val allResources: StateFlow<List<ResourceEntity>> = repository.allResources
+    val allBrainDumps: StateFlow<List<BrainDumpEntity>> = repository.allBrainDumps
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val allSessions: StateFlow<List<StudySessionEntity>> = repository.allSessions
+    val allResources: StateFlow<List<ResourceEntity>> = repository.allResources
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val themeMode: StateFlow<String> = repository.themeMode
@@ -171,33 +203,95 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
     val isLowEnergyMode: StateFlow<Boolean> = repository.isLowEnergyMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    // Study Timer State
-    private val _isTimerRunning = MutableStateFlow(false)
-    val isTimerRunning: StateFlow<Boolean> = _isTimerRunning.asStateFlow()
+    val lastBackupDate: StateFlow<String> = repository.lastBackupDate
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "Never")
 
+    // AI Coach State
+    private val _aiResult = MutableStateFlow<String?>(null)
+    val aiResult: StateFlow<String?> = _aiResult.asStateFlow()
+
+    private val _aiCoachAdvice = MutableStateFlow<String?>(null)
+    val aiCoachAdvice: StateFlow<String?> = _aiCoachAdvice.asStateFlow()
+
+    private val _isAiLoading = MutableStateFlow(false)
+    val isAiLoading: StateFlow<Boolean> = _isAiLoading.asStateFlow()
+
+    // 1. AI Test Generator States
+    private val _generatedTest = MutableStateFlow<GeneratedTest?>(null)
+    val generatedTest: StateFlow<GeneratedTest?> = _generatedTest.asStateFlow()
+
+    private val _isTestGenerating = MutableStateFlow(false)
+    val isTestGenerating: StateFlow<Boolean> = _isTestGenerating.asStateFlow()
+
+    private val _isTestSubmitting = MutableStateFlow(false)
+    val isTestSubmitting: StateFlow<Boolean> = _isTestSubmitting.asStateFlow()
+
+    private val _testUserAnswers = MutableStateFlow<Map<Int, String>>(emptyMap())
+    val testUserAnswers: StateFlow<Map<Int, String>> = _testUserAnswers.asStateFlow()
+
+    // 2. AI Oral Viva States
+    private val _vivaSession = MutableStateFlow<VivaSession?>(null)
+    val vivaSession: StateFlow<VivaSession?> = _vivaSession.asStateFlow()
+
+    private val _isVivaLoading = MutableStateFlow(false)
+    val isVivaLoading: StateFlow<Boolean> = _isVivaLoading.asStateFlow()
+
+    // 3. AI Multimodal Doubt Solver States
+    private val _doubtResult = MutableStateFlow<AiDoubtResult?>(null)
+    val doubtResult: StateFlow<AiDoubtResult?> = _doubtResult.asStateFlow()
+
+    private val _selectedDoubtBitmap = MutableStateFlow<Bitmap?>(null)
+    val selectedDoubtBitmap: StateFlow<Bitmap?> = _selectedDoubtBitmap.asStateFlow()
+
+    private val _isDoubtLoading = MutableStateFlow(false)
+    val isDoubtLoading: StateFlow<Boolean> = _isDoubtLoading.asStateFlow()
+
+    // 4. AI Weakness Analysis States
+    private val _weaknessReport = MutableStateFlow<WeaknessReport?>(null)
+    val weaknessReport: StateFlow<WeaknessReport?> = _weaknessReport.asStateFlow()
+
+    private val _isWeaknessLoading = MutableStateFlow(false)
+    val isWeaknessLoading: StateFlow<Boolean> = _isWeaknessLoading.asStateFlow()
+
+    // 5. AI Board Prediction & Daily Plan States
+    private val _boardPrediction = MutableStateFlow<AiBoardPrediction?>(null)
+    val boardPrediction: StateFlow<AiBoardPrediction?> = _boardPrediction.asStateFlow()
+
+    private val _aiDailyPlan = MutableStateFlow<AiDailyPlan?>(null)
+    val aiDailyPlan: StateFlow<AiDailyPlan?> = _aiDailyPlan.asStateFlow()
+
+    private val _isDailyPlanLoading = MutableStateFlow(false)
+    val isDailyPlanLoading: StateFlow<Boolean> = _isDailyPlanLoading.asStateFlow()
+
+    // Study Timer State
     private val _timerSeconds = MutableStateFlow(0)
     val timerSeconds: StateFlow<Int> = _timerSeconds.asStateFlow()
 
-    private val _timerSubject = MutableStateFlow("Physics")
-    val timerSubject: StateFlow<String> = _timerSubject.asStateFlow()
+    private val _isTimerRunning = MutableStateFlow(false)
+    val isTimerRunning: StateFlow<Boolean> = _isTimerRunning.asStateFlow()
 
-    private val _timerTopic = MutableStateFlow("")
-    val timerTopic: StateFlow<String> = _timerTopic.asStateFlow()
+    private val _currentSessionSubject = MutableStateFlow("Physics")
+    val timerSubject: StateFlow<String> = _currentSessionSubject.asStateFlow()
+
+    private val _currentSessionChapter = MutableStateFlow("")
+    val timerTopic: StateFlow<String> = _currentSessionChapter.asStateFlow()
+
+    private val _currentSessionTargetMinutes = MutableStateFlow(45)
+    val currentSessionTargetMinutes: StateFlow<Int> = _currentSessionTargetMinutes.asStateFlow()
 
     private var timerJob: Job? = null
-    private var timerStartTimeMs: Long = 0
 
-    fun startTimer(subject: String, topic: String) {
-        _timerSubject.value = subject
-        _timerTopic.value = topic
-        if (!_isTimerRunning.value) {
-            _isTimerRunning.value = true
-            timerStartTimeMs = System.currentTimeMillis() - (_timerSeconds.value * 1000L)
-            timerJob = viewModelScope.launch {
-                while (_isTimerRunning.value) {
-                    delay(1000)
-                    _timerSeconds.value += 1
-                }
+    fun startTimer(subject: String, chapter: String = "", targetMinutes: Int = 45) {
+        _currentSessionSubject.value = subject
+        _currentSessionChapter.value = chapter
+        _currentSessionTargetMinutes.value = targetMinutes
+        _isTimerRunning.value = true
+
+        timerJob?.cancel()
+        timerJob = viewModelScope.launch {
+            while (_isTimerRunning.value) {
+                delay(1000)
+                _timerSeconds.value += 1
             }
         }
     }
@@ -208,140 +302,163 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetTimer() {
-        pauseTimer()
+        _isTimerRunning.value = false
+        timerJob?.cancel()
         _timerSeconds.value = 0
     }
 
     fun stopAndSaveTimer(notes: String = "") {
-        val durationMin = (_timerSeconds.value / 60).coerceAtLeast(1)
+        val durationMinutes = (_timerSeconds.value / 60).coerceAtLeast(1)
         val now = System.currentTimeMillis()
         viewModelScope.launch {
             repository.insertSession(
                 StudySessionEntity(
-                    subjectName = _timerSubject.value,
-                    topic = _timerTopic.value.ifBlank { "Deep Study" },
-                    startTimeMs = timerStartTimeMs,
+                    subjectName = _currentSessionSubject.value,
+                    topic = _currentSessionChapter.value.ifBlank { "Deep Study" },
+                    startTimeMs = now - (durationMinutes * 60 * 1000L),
                     endTimeMs = now,
-                    durationMinutes = durationMin,
-                    isDeepWork = true,
-                    notes = notes,
-                    dateString = repository.getTodayDateString()
+                    durationMinutes = durationMinutes,
+                    dateString = repository.getTodayDateString(),
+                    notes = notes
                 )
             )
             resetTimer()
         }
     }
 
-    // AI State
-    private val _aiResult = MutableStateFlow<String?>(null)
-    val aiResult: StateFlow<String?> = _aiResult.asStateFlow()
-
-    private val _isAiLoading = MutableStateFlow(false)
-    val isAiLoading: StateFlow<Boolean> = _isAiLoading.asStateFlow()
-
-    fun clearAiResult() {
-        _aiResult.value = null
+    // Chapter Actions
+    fun updateChapter(chapter: ChapterEntity) {
+        viewModelScope.launch { repository.updateChapter(chapter) }
     }
 
-    fun requestAiSummary(subject: String, chapter: String) {
+    fun incrementWatchedLecture(chapterId: Long) {
+        viewModelScope.launch { repository.incrementWatchedLecture(chapterId) }
+    }
+
+    fun updateChapterStatus(chapterId: Long, status: String, progress: Int) {
+        viewModelScope.launch { repository.updateChapterStatus(chapterId, status, progress) }
+    }
+
+    fun addChapterToTodayTasks(chapter: ChapterEntity, subjectName: String) {
         viewModelScope.launch {
-            _isAiLoading.value = true
-            val res = geminiService.generateChapterSummary(subject, chapter)
-            _aiResult.value = res.getOrDefault("Summary unavailable")
-            _isAiLoading.value = false
-        }
-    }
-
-    fun requestAiQuiz(subject: String, chapter: String) {
-        viewModelScope.launch {
-            _isAiLoading.value = true
-            val res = geminiService.generatePracticeQuiz(subject, chapter)
-            _aiResult.value = res.getOrDefault("Quiz unavailable")
-            _isAiLoading.value = false
-        }
-    }
-
-    fun requestAiFlashcards(subject: String, chapter: String) {
-        viewModelScope.launch {
-            _isAiLoading.value = true
-            val res = geminiService.generateFlashcards(subject, chapter)
-            _aiResult.value = res.getOrDefault("Flashcards unavailable")
-            _isAiLoading.value = false
-        }
-    }
-
-    fun requestAiDoubtSolution(subject: String, doubt: String) {
-        viewModelScope.launch {
-            _isAiLoading.value = true
-            val res = geminiService.solveDoubt(subject, doubt)
-            _aiResult.value = res.getOrDefault("Doubt solution unavailable")
-            _isAiLoading.value = false
-        }
-    }
-
-    // User Actions
-    fun toggleLowEnergyMode() {
-        viewModelScope.launch {
-            val current = isLowEnergyMode.value
-            repository.setLowEnergyMode(!current)
-            if (!current) {
-                // Find Low Energy preset and activate it
-                val presets = allPresets.value
-                val lowEnergy = presets.find { it.name.contains("Low Energy", ignoreCase = true) }
-                if (lowEnergy != null) {
-                    repository.activatePreset(lowEnergy.id)
-                }
-            } else {
-                val schoolDay = allPresets.value.find { it.name.contains("School Day", ignoreCase = true) }
-                if (schoolDay != null) {
-                    repository.activatePreset(schoolDay.id)
-                }
-            }
-        }
-    }
-
-    fun openExternalPWThor() {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://pwthor.live")).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            getApplication<Application>().startActivity(intent)
-        } catch (_: Exception) {
-        }
-    }
-
-    fun saveScorecard(
-        wokeUpBy630: Boolean,
-        completedBlock1: Boolean,
-        completedBlock3: Boolean,
-        completedFitness: Boolean,
-        completedBlock5: Boolean,
-        didShutdownRitual: Boolean,
-        noPhoneBlocked: Boolean,
-        notes: String = ""
-    ) {
-        viewModelScope.launch {
-            repository.saveOrUpdateTodayScorecard(
-                wokeUpBy630 = wokeUpBy630,
-                completedBlock1 = completedBlock1,
-                completedBlock3 = completedBlock3,
-                completedFitness = completedFitness,
-                completedBlock5 = completedBlock5,
-                didShutdownRitual = didShutdownRitual,
-                noPhoneBlocked = noPhoneBlocked,
-                notes = notes,
-                isLowEnergyDay = isLowEnergyMode.value
+            repository.insertTask(
+                TaskEntity(
+                    subjectId = chapter.subjectId,
+                    title = "Fix: ${chapter.title} ($subjectName)",
+                    description = "Watch pending lectures / solve 10 PYQs / NCERT line-by-line",
+                    priority = "High",
+                    category = "Study",
+                    dueDate = repository.getTodayDateString()
+                )
             )
         }
     }
 
-    fun markRevisionDone(logId: Long, chapterId: Long, interval: String) {
+    // Task Actions
+    fun insertTask(task: TaskEntity) {
+        viewModelScope.launch { repository.insertTask(task) }
+    }
+
+    fun updateTask(task: TaskEntity) {
+        viewModelScope.launch { repository.updateTask(task) }
+    }
+
+    fun deleteTask(task: TaskEntity) {
+        viewModelScope.launch { repository.deleteTask(task.id) }
+    }
+
+    fun toggleTaskDone(task: TaskEntity) {
+        viewModelScope.launch { repository.updateTaskCompletion(task.id, !task.isCompleted) }
+    }
+
+    // Scorecard Actions
+    fun saveScorecard(
+        woke630: Boolean,
+        block1: Boolean,
+        block3: Boolean,
+        fitness: Boolean,
+        block5: Boolean,
+        shutdown: Boolean,
+        noPhone: Boolean,
+        notes: String = "",
+        isLowEnergy: Boolean = false
+    ) {
         viewModelScope.launch {
-            repository.markRevisionCompleted(logId, chapterId, interval)
+            repository.saveOrUpdateTodayScorecard(
+                wokeUpBy630 = woke630,
+                completedBlock1 = block1,
+                completedBlock3 = block3,
+                completedFitness = fitness,
+                completedBlock5 = block5,
+                didShutdownRitual = shutdown,
+                noPhoneBlocked = noPhone,
+                notes = notes,
+                isLowEnergyDay = isLowEnergy
+            )
         }
     }
 
-    fun saveBrainDump(content: String, category: String) {
+    fun updateTodayScorecard(
+        woke630: Boolean,
+        block1: Boolean,
+        block3: Boolean,
+        fitness: Boolean,
+        block5: Boolean,
+        shutdown: Boolean,
+        noPhone: Boolean,
+        notes: String = ""
+    ) {
+        saveScorecard(woke630, block1, block3, fitness, block5, shutdown, noPhone, notes)
+    }
+
+    // Journal Actions
+    fun saveEveningJournal(
+        mood: String,
+        winsDone: String,
+        missedWhat: String,
+        tomorrowFocus: String,
+        reflection: String
+    ) {
+        viewModelScope.launch {
+            val todayStr = repository.getTodayDateString()
+            repository.insertJournalEntry(
+                JournalEntryEntity(
+                    dateString = todayStr,
+                    mood = mood,
+                    winsDone = winsDone,
+                    missedWhat = missedWhat,
+                    tomorrowFocusAndBlock1 = tomorrowFocus,
+                    generalReflection = reflection,
+                    isWeeklyReview = false
+                )
+            )
+        }
+    }
+
+    fun saveSundayWeeklyReview(
+        strongDay: String,
+        weakDayAndTrigger: String,
+        neglectedSubject: String,
+        oneAdjustment: String
+    ) {
+        viewModelScope.launch {
+            val todayStr = repository.getTodayDateString()
+            repository.insertJournalEntry(
+                JournalEntryEntity(
+                    dateString = todayStr,
+                    mood = "Weekly Review",
+                    isWeeklyReview = true,
+                    weeklyReviewStrongDay = strongDay,
+                    weeklyReviewWeakDayAndTrigger = weakDayAndTrigger,
+                    weeklyReviewNeglectedSubject = neglectedSubject,
+                    weeklyReviewOneAdjustment = oneAdjustment
+                )
+            )
+        }
+    }
+
+    // Brain Dump Actions
+    fun saveBrainDump(content: String, category: String = BrainDumpEntity.CATEGORY_PARKING_LOT) {
         viewModelScope.launch {
             repository.insertBrainDump(
                 BrainDumpEntity(
@@ -352,81 +469,553 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun convertBrainDumpToTask(brainDump: BrainDumpEntity) {
+    fun insertBrainDump(content: String, category: String = BrainDumpEntity.CATEGORY_PARKING_LOT) {
+        saveBrainDump(content, category)
+    }
+
+    fun convertBrainDumpToTask(dump: BrainDumpEntity) {
         viewModelScope.launch {
             val taskId = repository.insertTask(
                 TaskEntity(
-                    title = brainDump.content,
-                    category = "BrainDump",
-                    priority = "Normal"
+                    title = dump.content,
+                    category = "Personal",
+                    priority = "Medium",
+                    dueDate = repository.getTodayDateString()
                 )
             )
-            repository.updateBrainDump(brainDump.copy(isProcessed = true, convertedToTaskId = taskId))
+            repository.updateBrainDump(dump.copy(isProcessed = true, convertedToTaskId = taskId))
         }
     }
 
-    fun saveEveningJournal(
-        mood: String,
-        wins: String,
-        missed: String,
-        tomorrowFocus: String,
-        reflection: String
-    ) {
-        val todayStr = repository.getTodayDateString()
+    fun deleteBrainDump(dump: BrainDumpEntity) {
         viewModelScope.launch {
-            val existing = todayJournal.value
-            val entry = JournalEntryEntity(
-                id = existing?.id ?: 0,
-                dateString = todayStr,
-                mood = mood,
-                winsDone = wins,
-                missedWhat = missed,
-                tomorrowFocusAndBlock1 = tomorrowFocus,
-                generalReflection = reflection
+            repository.deleteBrainDump(dump.id)
+        }
+    }
+
+    fun deleteBrainDump(id: Long) {
+        viewModelScope.launch {
+            repository.deleteBrainDump(id)
+        }
+    }
+
+    // Resource Actions
+    fun insertResource(resource: ResourceEntity) {
+        viewModelScope.launch { repository.insertResource(resource) }
+    }
+
+    fun updateResource(resource: ResourceEntity) {
+        viewModelScope.launch { repository.updateResource(resource) }
+    }
+
+    fun deleteResource(resource: ResourceEntity) {
+        viewModelScope.launch { repository.deleteResource(resource.id) }
+    }
+
+    // Timeline Actions
+    fun createTimelinePreset(name: String, description: String) {
+        viewModelScope.launch {
+            repository.insertPreset(
+                TimelinePresetEntity(
+                    name = name,
+                    description = description
+                )
             )
-            if (existing != null) {
-                repository.updateJournalEntry(entry)
-            } else {
-                repository.insertJournalEntry(entry)
+        }
+    }
+
+    fun activatePreset(presetId: Long) {
+        viewModelScope.launch {
+            repository.activatePreset(presetId)
+        }
+    }
+
+    fun addTimelineBlock(block: TimelineBlockEntity) {
+        viewModelScope.launch { repository.insertBlock(block) }
+    }
+
+    fun updateTimelineBlock(block: TimelineBlockEntity) {
+        viewModelScope.launch { repository.updateBlock(block) }
+    }
+
+    fun deleteTimelineBlock(block: TimelineBlockEntity) {
+        viewModelScope.launch { repository.deleteBlock(block.id) }
+    }
+
+    // Revision Actions
+    fun scheduleNewRevision(
+        chapterId: Long,
+        subjectName: String,
+        chapterTitle: String,
+        intervalLabel: String,
+        daysToAdd: Int,
+        notes: String
+    ) {
+        viewModelScope.launch {
+            repository.scheduleNewRevision(chapterId, subjectName, chapterTitle, intervalLabel, daysToAdd, notes)
+        }
+    }
+
+    fun markRevisionDone(logId: Long, chapterId: Long, currentInterval: String) {
+        viewModelScope.launch {
+            repository.markRevisionCompleted(logId, chapterId, currentInterval)
+        }
+    }
+
+    fun markRevisionCompleted(revision: RevisionLogEntity, confidenceScore: Int, notes: String) {
+        viewModelScope.launch {
+            repository.markRevisionCompleted(revision.id, revision.chapterId, revision.intervalLabel)
+        }
+    }
+
+    // Mock Tests Actions
+    fun addMockTest(subject: String, chapter: String, testName: String, marks: Double, totalMarks: Double, date: String, notes: String) {
+        viewModelScope.launch {
+            repository.insertMockTest(
+                MockTestEntity(
+                    subject = subject,
+                    chapter = chapter,
+                    testName = testName,
+                    marksObtained = marks,
+                    totalMarks = totalMarks,
+                    testDate = date,
+                    notes = notes
+                )
+            )
+        }
+    }
+
+    fun deleteMockTest(id: Long) {
+        viewModelScope.launch { repository.deleteMockTest(id) }
+    }
+
+    // Streaks Actions
+    fun toggleStreakCheckIn(streakKey: String) {
+        viewModelScope.launch { repository.toggleStreakCheckIn(streakKey) }
+    }
+
+    // Mission Goals Actions
+    fun saveMissionGoals(board: String, score: String, boardDate: String, phyDate: String, chemDate: String, bioDate: String) {
+        viewModelScope.launch {
+            repository.setMissionGoals(board, score, boardDate, phyDate, chemDate, bioDate)
+        }
+    }
+
+    fun saveWeeklyTargets(chapters: Int, lectures: Int, mocks: Int) {
+        viewModelScope.launch {
+            repository.setWeeklyTargets(chapters, lectures, mocks)
+        }
+    }
+
+    // AI Features
+    fun requestAiSummary(subject: String, chapterTitle: String) {
+        viewModelScope.launch {
+            _isAiLoading.value = true
+            _aiResult.value = null
+            val result = geminiService.generateChapterSummary(subject, chapterTitle)
+            _isAiLoading.value = false
+            _aiResult.value = result.getOrElse { it.localizedMessage ?: "Failed to generate summary." }
+        }
+    }
+
+    fun requestAiQuiz(subject: String, chapterTitle: String) {
+        viewModelScope.launch {
+            _isAiLoading.value = true
+            _aiResult.value = null
+            val result = geminiService.generatePracticeQuiz(subject, chapterTitle)
+            _isAiLoading.value = false
+            _aiResult.value = result.getOrElse { it.localizedMessage ?: "Failed to generate quiz." }
+        }
+    }
+
+    fun requestAiFlashcards(subject: String, chapterTitle: String) {
+        viewModelScope.launch {
+            _isAiLoading.value = true
+            _aiResult.value = null
+            val result = geminiService.generateFlashcards(subject, chapterTitle)
+            _isAiLoading.value = false
+            _aiResult.value = result.getOrElse { it.localizedMessage ?: "Failed to generate flashcards." }
+        }
+    }
+
+    fun requestAiDoubtSolution(subject: String, doubtText: String) {
+        viewModelScope.launch {
+            _isAiLoading.value = true
+            _aiResult.value = null
+            val result = geminiService.solveDoubt(subject, doubtText)
+            _isAiLoading.value = false
+            _aiResult.value = result.getOrElse { it.localizedMessage ?: "Failed to solve doubt." }
+        }
+    }
+
+    fun requestAiStudyCoachAdvice() {
+        viewModelScope.launch {
+            _isAiLoading.value = true
+            _aiCoachAdvice.value = null
+
+            val chapters = allChapters.value
+            val weak = chapters.filter { it.isWeak }.take(3).map { it.title }
+            val revisions = dueRevisions.value.take(2).map { it.chapterTitle }
+            val mockScores = allMockTests.value.take(3).map { "${it.subject}: ${it.percentage.toInt()}%" }
+
+            val prompt = """
+                You are Rudra's personal AI Study Coach for Class 12 Science PCB (Board 2027, Target 85%+).
+                Current Status:
+                - Weak Chapters: ${if (weak.isEmpty()) "None marked" else weak.joinToString(", ")}
+                - Due Revisions Today: ${if (revisions.isEmpty()) "All caught up" else revisions.joinToString(", ")}
+                - Recent Mock Scores: ${if (mockScores.isEmpty()) "No recent mocks" else mockScores.joinToString(", ")}
+                - Total Chapters Completed: ${chapters.count { it.status == ChapterEntity.STATUS_COMPLETED }} / 46
+                
+                Please provide a focused daily coaching blueprint:
+                1. 🎯 Top 3 High-Impact Priority Tasks for Today (Specific Chapter + Activity: e.g. NCERT reading, Lecture 4-6, or 15 PYQs)
+                2. 🔄 Urgent Revision Target (Spaced repetition warning)
+                3. 🧪 Mock Test Recommendation (Which subject/chapter to test this weekend)
+                4. ⚡ High-Performance Mindset Quote / Strict Discipline Advice.
+                Keep it concise, direct, inspiring, and strictly tailored to Class 12 PCB.
+            """.trimIndent()
+
+            val result = geminiService.generateChapterSummary("PCB Board Preparation", prompt)
+            _isAiLoading.value = false
+            _aiCoachAdvice.value = result.getOrElse {
+                """
+                🎯 Daily Study Blueprint (Offline Mode):
+                1. Physics Block: Focus on Electric Charges & Fields - Solve 10 PYQs + NCERT Examples.
+                2. Chemistry Block: Revise Electrochemistry Nernst Equation formulas + 5 numericals.
+                3. Biology Block: Complete Sexual Reproduction in Flowering Plants line-by-line NCERT diagram practice.
+                
+                🔄 Urgent Revision: Review yesterday's notes for 20 mins before starting new topics.
+                ⚡ Mindset: "Consistency beats intensity. Protect your study blocks with zero phone scroll."
+                """.trimIndent()
             }
         }
     }
 
-    fun saveSundayWeeklyReview(
-        strongDay: String,
-        weakDayAndTrigger: String,
-        neglectedSubject: String,
-        oneAdjustment: String
+    // ==========================================
+    // 1. AI TEST GENERATOR & EXAM ENGINE
+    // ==========================================
+    fun generateTestPaper(
+        subject: String,
+        chapters: List<String>,
+        mode: String,
+        difficulty: String,
+        questionTypes: List<QuestionType>,
+        questionCount: Int = 5
     ) {
-        val todayStr = repository.getTodayDateString()
         viewModelScope.launch {
-            val existing = todayJournal.value
-            val entry = (existing ?: JournalEntryEntity(dateString = todayStr)).copy(
-                isWeeklyReview = true,
-                weeklyReviewStrongDay = strongDay,
-                weeklyReviewWeakDayAndTrigger = weakDayAndTrigger,
-                weeklyReviewNeglectedSubject = neglectedSubject,
-                weeklyReviewOneAdjustment = oneAdjustment
+            _isTestGenerating.value = true
+            _testUserAnswers.value = emptyMap()
+            val result = geminiService.generateTestPaper(
+                subject = subject,
+                chapters = chapters,
+                mode = mode,
+                difficulty = difficulty,
+                questionTypes = questionTypes,
+                questionCount = questionCount
             )
-            if (existing != null) {
-                repository.updateJournalEntry(entry)
-            } else {
-                repository.insertJournalEntry(entry)
+            _isTestGenerating.value = false
+            _generatedTest.value = result.getOrNull()
+        }
+    }
+
+    fun updateTestAnswer(questionId: Int, answer: String) {
+        val current = _testUserAnswers.value.toMutableMap()
+        current[questionId] = answer
+        _testUserAnswers.value = current
+    }
+
+    fun submitTestPaper() {
+        val test = _generatedTest.value ?: return
+        viewModelScope.launch {
+            _isTestSubmitting.value = true
+            val evaluated = geminiService.evaluateTestSubmission(test, _testUserAnswers.value)
+            _isTestSubmitting.value = false
+            _generatedTest.value = evaluated.getOrNull() ?: test
+        }
+    }
+
+    fun saveTestResultToMockHistory() {
+        val test = _generatedTest.value ?: return
+        viewModelScope.launch {
+            repository.insertMockTest(
+                MockTestEntity(
+                    subject = test.subject,
+                    chapter = test.chapters.joinToString(", ").ifBlank { test.mode },
+                    testName = test.title,
+                    marksObtained = test.totalObtainedMarks,
+                    totalMarks = test.totalMarks,
+                    testDate = repository.getTodayDateString(),
+                    notes = "AI Test (${test.difficulty}). ${test.feedback}"
+                )
+            )
+        }
+    }
+
+    fun clearActiveTest() {
+        _generatedTest.value = null
+        _testUserAnswers.value = emptyMap()
+    }
+
+    // ==========================================
+    // 2. AI ORAL VIVA MODE
+    // ==========================================
+    fun startVivaSession(subject: String, chapter: String) {
+        viewModelScope.launch {
+            _isVivaLoading.value = true
+            val firstQ = geminiService.generateVivaQuestion(subject, chapter, 1, emptyList())
+            _isVivaLoading.value = false
+            if (firstQ.isSuccess) {
+                val q = firstQ.getOrNull()!!
+                _vivaSession.value = VivaSession(
+                    subject = subject,
+                    chapter = chapter,
+                    questions = listOf(q),
+                    currentQuestionIndex = 0,
+                    maxScore = 5
+                )
             }
         }
     }
 
-    // Notification Settings Actions
-    fun setNotificationsEnabled(enabled: Boolean) {
+    fun submitVivaAnswer(userResponse: String) {
+        val session = _vivaSession.value ?: return
+        val currentQ = session.questions.getOrNull(session.currentQuestionIndex) ?: return
         viewModelScope.launch {
-            preferences.setNotificationsEnabled(enabled)
-            com.example.notification.RudraAlarmScheduler.rescheduleAllRoutineAlarms(getApplication(), preferences)
+            _isVivaLoading.value = true
+            val evaluatedQ = geminiService.evaluateVivaAnswer(currentQ, userResponse)
+            _isVivaLoading.value = false
+            val eval = evaluatedQ.getOrElse { currentQ.copy(userResponse = userResponse, isAnswered = true, correctnessScore = 3) }
+
+            val updatedQuestions = session.questions.toMutableList()
+            updatedQuestions[session.currentQuestionIndex] = eval
+            val newScore = updatedQuestions.sumOf { it.correctnessScore }
+
+            _vivaSession.value = session.copy(
+                questions = updatedQuestions,
+                overallScore = newScore
+            )
+        }
+    }
+
+    fun nextVivaQuestion() {
+        val session = _vivaSession.value ?: return
+        val nextIdx = session.currentQuestionIndex + 1
+        if (nextIdx >= 5) {
+            // Completed 5 questions viva
+            val totalScore = session.questions.sumOf { it.correctnessScore }
+            _vivaSession.value = session.copy(
+                isCompleted = true,
+                overallScore = totalScore,
+                maxScore = session.questions.size * 5,
+                overallFeedback = if (totalScore >= 20) "Outstanding viva! Board Topper Standard." else "Good effort! Revise missing technical terms before practicals."
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            _isVivaLoading.value = true
+            val asked = session.questions.map { it.question }
+            val nextQ = geminiService.generateVivaQuestion(session.subject, session.chapter, nextIdx + 1, asked)
+            _isVivaLoading.value = false
+            if (nextQ.isSuccess) {
+                val q = nextQ.getOrNull()!!
+                val updatedQuestions = session.questions.toMutableList().apply { add(q) }
+                _vivaSession.value = session.copy(
+                    questions = updatedQuestions,
+                    currentQuestionIndex = nextIdx,
+                    maxScore = updatedQuestions.size * 5
+                )
+            }
+        }
+    }
+
+    fun resetVivaSession() {
+        _vivaSession.value = null
+    }
+
+    // ==========================================
+    // 3. AI MULTIMODAL DOUBT SOLVER
+    // ==========================================
+    fun setSelectedDoubtBitmap(bitmap: Bitmap?) {
+        _selectedDoubtBitmap.value = bitmap
+    }
+
+    fun solveDoubt(subject: String, doubtText: String) {
+        viewModelScope.launch {
+            _isDoubtLoading.value = true
+            _doubtResult.value = null
+            val result = geminiService.solveDoubtWithImage(subject, doubtText, _selectedDoubtBitmap.value)
+            _isDoubtLoading.value = false
+            _doubtResult.value = result.getOrNull()
+        }
+    }
+
+    fun clearDoubtResult() {
+        _doubtResult.value = null
+        _selectedDoubtBitmap.value = null
+    }
+
+    // ==========================================
+    // 4. AI WEAKNESS ANALYSIS & ADAPTIVE ENGINE
+    // ==========================================
+    fun generateWeaknessAnalysis() {
+        viewModelScope.launch {
+            _isWeaknessLoading.value = true
+            val chapters = allChapters.value
+            val weak = chapters.filter { it.isWeak }.map { it.title }
+            val strong = chapters.filter { it.status == ChapterEntity.STATUS_COMPLETED && it.confidenceRating >= 4 }.map { it.title }
+            val mocks = allMockTests.value
+            val mockAvg = if (mocks.isNotEmpty()) mocks.map { it.percentage }.average() else 72.0
+            val revCount = completedRevisions.value.size
+
+            val report = geminiService.generateWeaknessAnalysis(weak, strong, mockAvg, revCount)
+            _isWeaknessLoading.value = false
+            _weaknessReport.value = report.getOrNull()
+        }
+    }
+
+    fun generateAdaptiveRemediationTest() {
+        val report = _weaknessReport.value
+        val weakChapters = report?.recommendedChapters ?: emptyList()
+        val subject = if (weakChapters.any { it.contains("Physics", true) || it.contains("Electric", true) }) "Physics" else "Chemistry"
+        val difficulty = if (report?.adaptiveTier?.contains("Level 3") == true) "Hard" else if (report?.adaptiveTier?.contains("Level 1") == true) "Easy" else "Board Level"
+
+        generateTestPaper(
+            subject = subject,
+            chapters = weakChapters,
+            mode = "Adaptive Remediation Test",
+            difficulty = difficulty,
+            questionTypes = listOf(QuestionType.MCQ, QuestionType.ASSERTION_REASON, QuestionType.SHORT_ANSWER, QuestionType.NUMERICAL),
+            questionCount = 5
+        )
+    }
+
+    // ==========================================
+    // 5. AI BOARD PREDICTOR & DAILY PLANNER
+    // ==========================================
+    fun generateAiDailyPlan() {
+        viewModelScope.launch {
+            _isDailyPlanLoading.value = true
+            _aiDailyPlan.value = null
+
+            val chapters = allChapters.value
+            val weak = chapters.filter { it.isWeak }.take(3).map { it.title }
+            val revisions = dueRevisions.value.take(3).map { it.chapterTitle }
+            val completed = chapters.count { it.status == ChapterEntity.STATUS_COMPLETED }
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val targetDate = try { sdf.parse(boardExamDate.value) } catch (e: Exception) { null }
+            val remainingDays = if (targetDate != null) {
+                val diff = targetDate.time - System.currentTimeMillis()
+                (diff / (1000 * 60 * 60 * 24L)).coerceAtLeast(0).toInt()
+            } else {
+                300
+            }
+
+            val plan = geminiService.generateAiDailyPlan(
+                remainingDays = remainingDays,
+                weakChapters = weak,
+                dueRevisions = revisions,
+                completedCount = completed,
+                totalChapters = 46
+            )
+            _isDailyPlanLoading.value = false
+            _aiDailyPlan.value = plan.getOrNull()
+        }
+    }
+
+    fun addDailyPlanTasksToTaskManager() {
+        val plan = _aiDailyPlan.value ?: return
+        viewModelScope.launch {
+            val todayStr = repository.getTodayDateString()
+            plan.todayChapters.forEach { ch ->
+                repository.insertTask(
+                    TaskEntity(
+                        title = ch,
+                        category = "Study",
+                        priority = "High",
+                        dueDate = todayStr
+                    )
+                )
+            }
+            plan.revisionTasks.forEach { rev ->
+                repository.insertTask(
+                    TaskEntity(
+                        title = rev,
+                        category = "Revision",
+                        priority = "Medium",
+                        dueDate = todayStr
+                    )
+                )
+            }
+            if (plan.mockTestTask.isNotBlank()) {
+                repository.insertTask(
+                    TaskEntity(
+                        title = plan.mockTestTask,
+                        category = "Mock Test",
+                        priority = "High",
+                        dueDate = todayStr
+                    )
+                )
+            }
+        }
+    }
+
+    fun refreshBoardPrediction() {
+        viewModelScope.launch {
+            val chapters = allChapters.value
+            val completed = chapters.count { it.status == ChapterEntity.STATUS_COMPLETED }
+            val revisions = completedRevisions.value.size
+            val mocks = allMockTests.value
+            val mockAvg = if (mocks.isNotEmpty()) mocks.map { it.percentage }.average() else 72.0
+
+            _boardPrediction.value = geminiService.predictBoardReadiness(
+                completedChapters = completed,
+                totalChapters = 46,
+                completedRevisions = revisions,
+                mockAverage = mockAvg
+            )
+        }
+    }
+
+    fun clearAiResult() {
+        _aiResult.value = null
+    }
+
+    // App Preferences Actions
+    fun setThemeMode(mode: String) {
+        viewModelScope.launch { repository.setThemeMode(mode) }
+    }
+
+    fun setLetsStudyMode(mode: String) {
+        viewModelScope.launch { repository.setLetsStudyMode(mode) }
+    }
+
+    fun toggleLowEnergyMode() {
+        viewModelScope.launch {
+            repository.setLowEnergyMode(!isLowEnergyMode.value)
         }
     }
 
     fun setPermissionPromptShown(shown: Boolean) {
+        viewModelScope.launch { preferences.setPermissionPromptShown(shown) }
+    }
+
+    fun openPwBatchInBrowser() {
+        val url = "https://www.physicswallah.live/study/batches/my-batches"
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        getApplication<Application>().startActivity(intent)
+    }
+
+    // Notification Actions
+    fun setNotificationsEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            preferences.setPermissionPromptShown(shown)
+            preferences.setNotificationsEnabled(enabled)
+            if (enabled) {
+                com.example.notification.RudraAlarmScheduler.rescheduleAllRoutineAlarms(getApplication(), preferences)
+            } else {
+                com.example.notification.RudraAlarmScheduler.cancelAllRoutineAlarms(getApplication())
+            }
         }
     }
 
@@ -440,12 +1029,14 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
     fun setRevisionRemindersEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferences.setRevisionRemindersEnabled(enabled)
+            com.example.notification.RudraAlarmScheduler.rescheduleAllRoutineAlarms(getApplication(), preferences)
         }
     }
 
     fun setTaskRemindersEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferences.setTaskRemindersEnabled(enabled)
+            com.example.notification.RudraAlarmScheduler.rescheduleAllRoutineAlarms(getApplication(), preferences)
         }
     }
 
@@ -457,16 +1048,11 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setRecoveryRemindersEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            preferences.setRecoveryRemindersEnabled(enabled)
-        }
+        viewModelScope.launch { preferences.setRecoveryRemindersEnabled(enabled) }
     }
 
     fun setWeeklyReviewEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            preferences.setWeeklyReviewEnabled(enabled)
-            com.example.notification.RudraAlarmScheduler.rescheduleAllRoutineAlarms(getApplication(), preferences)
-        }
+        viewModelScope.launch { preferences.setWeeklyReviewEnabled(enabled) }
     }
 
     fun setSoundEnabled(enabled: Boolean) {
@@ -505,8 +1091,14 @@ sealed class Screen(val title: String, val route: String) {
     data object Dashboard : Screen("Dashboard", "dashboard")
     data object Timeline : Screen("Timeline", "timeline")
     data object LetsStudy : Screen("Let's Study", "lets_study")
-    data object Subjects : Screen("Subjects", "subjects")
+    data object Subjects : Screen("PCB Syllabus", "subjects")
+    data object WeakChapters : Screen("Weak Chapters", "weak_chapters")
+    data object MockTests : Screen("Mock Tests", "mock_tests")
+    data object LectureTracker : Screen("Lecture Tracker", "lecture_tracker")
     data object Revision : Screen("Revision Engine", "revision")
+    data object AiCoach : Screen("AI Study Coach", "ai_coach")
+    data object MissionBoard : Screen("Mission Board", "mission_board")
+    data object Streaks : Screen("Streak Tracker", "streaks")
     data object Tasks : Screen("Task Manager", "tasks")
     data object StudySession : Screen("Study Tracker", "study_session")
     data object Journal : Screen("Evening Journal", "journal")

@@ -19,7 +19,7 @@ interface ChapterDao {
     @Query("SELECT * FROM chapters WHERE id = :id")
     suspend fun getChapterById(id: Long): ChapterEntity?
 
-    @Query("SELECT * FROM chapters WHERE priority = 'Weak Area'")
+    @Query("SELECT * FROM chapters WHERE priority = 'Weak Area' OR confidenceRating <= 2 OR difficultyRating >= 4")
     fun getWeakChapters(): Flow<List<ChapterEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -34,9 +34,15 @@ interface ChapterDao {
     @Query("UPDATE chapters SET status = :status, progressPercent = :progress WHERE id = :id")
     suspend fun updateChapterStatus(id: Long, status: String, progress: Int)
 
+    @Query("UPDATE chapters SET watchedLectures = :watched, totalLectures = :total WHERE id = :id")
+    suspend fun updateLectures(id: Long, watched: Int, total: Int)
+
     @Query("UPDATE chapters SET revisionCount = revisionCount + 1, lastRevisionDate = :date, nextRevisionDueDate = :nextDueDate, status = 'Revised' WHERE id = :id")
     suspend fun recordChapterRevision(id: Long, date: String, nextDueDate: String?)
 
     @Query("DELETE FROM chapters WHERE id = :id")
     suspend fun deleteChapterById(id: Long)
+
+    @Query("SELECT COUNT(*) FROM chapters")
+    suspend fun getChapterCount(): Int
 }

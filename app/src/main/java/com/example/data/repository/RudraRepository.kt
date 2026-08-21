@@ -1,6 +1,7 @@
 package com.example.data.repository
 
 import com.example.data.local.AppDatabase
+import com.example.data.local.PcbDatabaseSeeder
 import com.example.data.local.entities.*
 import com.example.data.preferences.UserPreferences
 import kotlinx.coroutines.flow.Flow
@@ -17,16 +18,39 @@ class RudraRepository(
 
     fun getTodayDateString(): String = dateFormat.format(Date())
 
+    suspend fun seedDatabaseIfEmpty() {
+        PcbDatabaseSeeder.seedDatabaseIfEmpty(database)
+    }
+
     // --- Preferences ---
     val themeMode: Flow<String> = preferences.themeMode
     val letsStudyMode: Flow<String> = preferences.letsStudyMode
     val isLowEnergyMode: Flow<Boolean> = preferences.isLowEnergyMode
     val lastBackupDate: Flow<String> = preferences.lastBackupDate
 
+    // Exam Goals & Countdown Preferences
+    val targetBoard: Flow<String> = preferences.targetBoard
+    val targetScore: Flow<String> = preferences.targetScore
+    val boardExamDate: Flow<String> = preferences.boardExamDate
+    val physicsExamDate: Flow<String> = preferences.physicsExamDate
+    val chemistryExamDate: Flow<String> = preferences.chemistryExamDate
+    val biologyExamDate: Flow<String> = preferences.biologyExamDate
+    val weeklyChapterTarget: Flow<Int> = preferences.weeklyChapterTarget
+    val weeklyLectureTarget: Flow<Int> = preferences.weeklyLectureTarget
+    val weeklyMockTarget: Flow<Int> = preferences.weeklyMockTarget
+
     suspend fun setThemeMode(mode: String) = preferences.setThemeMode(mode)
     suspend fun setLetsStudyMode(mode: String) = preferences.setLetsStudyMode(mode)
     suspend fun setLowEnergyMode(enabled: Boolean) = preferences.setLowEnergyMode(enabled)
     suspend fun setLastBackupDate(date: String) = preferences.setLastBackupDate(date)
+
+    suspend fun setMissionGoals(board: String, score: String, boardDate: String, phyDate: String, chemDate: String, bioDate: String) {
+        preferences.setMissionGoals(board, score, boardDate, phyDate, chemDate, bioDate)
+    }
+
+    suspend fun setWeeklyTargets(chapters: Int, lectures: Int, mocks: Int) {
+        preferences.setWeeklyTargets(chapters, lectures, mocks)
+    }
 
     // --- Subjects & Chapters ---
     val allSubjects: Flow<List<SubjectEntity>> = database.subjectDao().getAllSubjects()
@@ -44,7 +68,65 @@ class RudraRepository(
     suspend fun updateChapter(chapter: ChapterEntity) = database.chapterDao().updateChapter(chapter)
     suspend fun updateChapterStatus(id: Long, status: String, progress: Int) =
         database.chapterDao().updateChapterStatus(id, status, progress)
+
+    suspend fun updateChapterLectures(id: Long, watched: Int, total: Int) =
+        database.chapterDao().updateLectures(id, watched, total)
+
+    suspend fun incrementWatchedLecture(chapterId: Long) {
+        val chapter = database.chapterDao().getChapterById(chapterId) ?: return
+        val newWatched = (chapter.watchedLectures + 1).coerceAtMost(chapter.totalLectures)
+        val newProgress = if (chapter.totalLectures > 0) ((newWatched.toFloat() / chapter.totalLectures) * 100).toInt() else chapter.progressPercent
+        val newStatus = if (newWatched >= chapter.totalLectures && chapter.totalLectures > 0) ChapterEntity.STATUS_COMPLETED else ChapterEntity.STATUS_LEARNING
+        database.chapterDao().updateChapter(
+            chapter.copy(
+                watchedLectures = newWatched,
+                progressPercent = newProgress,
+                status = if (chapter.status == ChapterEntity.STATUS_NOT_STARTED) newStatus else chapter.status,
+                lastStudiedDate = getTodayDateString()
+            )
+        )
+    }
+
     suspend fun deleteChapter(id: Long) = database.chapterDao().deleteChapterById(id)
+
+    // --- Mock Tests ---
+    val allMockTests: Flow<List<MockTestEntity>> = database.mockTestDao().getAllMockTests()
+    fun getMockTestsBySubject(subject: String): Flow<List<MockTestEntity>> = database.mockTestDao().getMockTestsBySubject(subject)
+    suspend fun insertMockTest(test: MockTestEntity): Long = database.mockTestDao().insertMockTest(test)
+    suspend fun deleteMockTest(id: Long) = database.mockTestDao().deleteMockTestById(id)
+
+    // --- Streaks System ---
+    val allStreaks: Flow<List<StreakRecordEntity>> = database.streakDao().getAllStreaks()
+    suspend fun toggleStreakCheckIn(streakKey: String) {
+        val todayStr = getTodayDateString()
+        val existing = database.streakDao().getStreakByKey(streakKey) ?: return
+        val historyList = existing.historyLog.split(",").filter { it.isNotBlank() }.toMutableList()
+
+        if (historyList.contains(todayStr)) {
+            // Uncheck for today
+            historyList.remove(todayStr)
+            val newCurrent = (existing.currentStreak - 1).coerceAtLeast(0)
+            database.streakDao().updateStreak(
+                existing.copy(
+                    currentStreak = newCurrent,
+                    historyLog = historyList.joinToString(",")
+                )
+            )
+        } else {
+            // Check in for today
+            historyList.add(todayStr)
+            val newCurrent = existing.currentStreak + 1
+            val newBest = maxOf(existing.bestStreak, newCurrent)
+            database.streakDao().updateStreak(
+                existing.copy(
+                    currentStreak = newCurrent,
+                    bestStreak = newBest,
+                    lastActiveDate = todayStr,
+                    historyLog = historyList.joinToString(",")
+                )
+            )
+        }
+    }
 
     // --- Spaced Repetition Engine ---
     val allRevisionLogs: Flow<List<RevisionLogEntity>> = database.revisionLogDao().getAllRevisionLogs()
@@ -60,7 +142,6 @@ class RudraRepository(
         val todayStr = getTodayDateString()
         database.revisionLogDao().markCompleted(logId, todayStr)
 
-        // Calculate next spaced repetition interval
         val nextIntervalInfo = getNextRevisionInterval(currentInterval)
         if (nextIntervalInfo != null) {
             val (nextLabel, daysToAdd) = nextIntervalInfo
@@ -107,11 +188,12 @@ class RudraRepository(
 
     private fun getNextRevisionInterval(current: String): Pair<String, Int>? {
         return when (current) {
-            "Same Day" -> Pair("+1 Day", 1)
-            "+1 Day" -> Pair("+3 Days", 3)
-            "+3 Days" -> Pair("+7 Days", 7)
-            "+7 Days" -> Pair("+15 Days", 15)
-            "+15 Days" -> Pair("+30 Days", 30)
+            "Revision 1 (Same Day)" -> Pair("Revision 2 (+7 Days)", 7)
+            "Revision 2 (+7 Days)" -> Pair("Revision 3 (+30 Days)", 23)
+            "Same Day" -> Pair("+7 Days", 7)
+            "+1 Day" -> Pair("+7 Days", 6)
+            "+7 Days" -> Pair("+30 Days", 23)
+            "+15 Days" -> Pair("+30 Days", 15)
             else -> null
         }
     }

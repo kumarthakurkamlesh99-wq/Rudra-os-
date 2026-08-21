@@ -32,7 +32,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Gradle 9.3.1
+      - name: Set up Gradle & Cache
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
@@ -40,14 +40,15 @@ jobs:
 
       - name: Prepare Gradle Wrapper & Permissions
         run: |
-          echo "Setting up Gradle wrapper binaries..."
-          gradle wrapper --gradle-version 9.3.1 --distribution-type bin || true
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Generating Gradle Wrapper binaries..."
+            gradle wrapper --gradle-version 9.3.1 --distribution-type bin || true
+          fi
           chmod +x gradlew
-          ls -la gradlew gradle/wrapper/
 
-      - name: Prepare Environment and Google Services Configurations
+      - name: Prepare Environment & Service Configs
         run: |
-          # 1. Create .env from .env.example or fallback
+          # 1. Provide fallback .env if not present
           if [ ! -f ".env" ]; then
             if [ -f ".env.example" ]; then
               cp .env.example .env
@@ -56,11 +57,9 @@ jobs:
             fi
           fi
           echo "GEMINI_API_KEY=dummy_placeholder_key" >> .env
-          echo "Created .env successfully"
 
-          # 2. Ensure fallback google-services.json exists
+          # 2. Provide fallback google-services.json if not present
           if [ ! -f "app/google-services.json" ]; then
-            echo "Generating fallback app/google-services.json for Google Services plugin..."
             cat << 'EOF' > app/google-services.json
           {
             "project_info": {
@@ -95,22 +94,18 @@ jobs:
           fi
 
       - name: Build Debug APK
-        run: |
-          echo "Building Debug APK with Gradle Wrapper..."
-          ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Collect Debug APK Artifact
+      - name: Collect Debug APK
         run: |
           mkdir -p artifacts
           DEBUG_APK=$(find app/build/outputs/apk -type f -name "*debug*.apk" -o -name "*.apk" | head -n 1)
           if [ -n "$DEBUG_APK" ] && [ -f "$DEBUG_APK" ]; then
-            echo "Found APK at: $DEBUG_APK"
+            echo "Found Debug APK: $DEBUG_APK"
             cp "$DEBUG_APK" artifacts/app-debug.apk
-            echo "Artifacts directory contents:"
             ls -lh artifacts/
           else
-            echo "Error: No APK file was generated in app/build/outputs/apk/"
-            find app/build/outputs/ -type f || true
+            echo "::error::No debug APK found in outputs directory!"
             exit 1
           fi
 

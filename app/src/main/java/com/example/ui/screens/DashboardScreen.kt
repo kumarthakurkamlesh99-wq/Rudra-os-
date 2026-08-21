@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,6 +20,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.local.entities.ChapterEntity
 import com.example.data.local.entities.ScorecardEntity
 import com.example.ui.components.GlassCard
 import com.example.ui.components.ScoreBadge
@@ -30,6 +32,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 @Composable
 fun DashboardScreen(
@@ -44,9 +47,28 @@ fun DashboardScreen(
     val currentTimelineBlocks by viewModel.currentTimelineBlocks.collectAsState()
     val isLowEnergy by viewModel.isLowEnergyMode.collectAsState()
     val overdueTasks by viewModel.overdueTasks.collectAsState()
+    val allChapters by viewModel.allChapters.collectAsState()
+    val weakChapters by viewModel.weakChapters.collectAsState()
+    val allStreaks by viewModel.allStreaks.collectAsState()
+
+    val targetBoard by viewModel.targetBoard.collectAsState()
+    val targetScore by viewModel.targetScore.collectAsState()
+    val boardExamDate by viewModel.boardExamDate.collectAsState()
 
     var showQuickScorecardDialog by remember { mutableStateOf(false) }
     var quickBrainDumpText by remember { mutableStateOf("") }
+
+    val daysRemaining = remember(boardExamDate) {
+        try {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val exam = sdf.parse(boardExamDate)?.time ?: 0L
+            val today = System.currentTimeMillis()
+            val diff = exam - today
+            (TimeUnit.MILLISECONDS.toDays(diff)).coerceAtLeast(0)
+        } catch (e: Exception) {
+            365L
+        }
+    }
 
     val avgScore = remember(last7DaysScorecards) {
         if (last7DaysScorecards.isNotEmpty()) {
@@ -59,27 +81,96 @@ fun DashboardScreen(
         SimpleDateFormat("EEEE, dd MMMM yyyy", Locale.getDefault()).format(Date())
     }
 
+    val completedChapters = remember(allChapters) {
+        allChapters.count { it.status == ChapterEntity.STATUS_COMPLETED || it.status == ChapterEntity.STATUS_REVISED }
+    }
+
+    val phyCount = remember(allChapters) { allChapters.count { it.subjectId == 1L && (it.status == ChapterEntity.STATUS_COMPLETED || it.status == ChapterEntity.STATUS_REVISED) } }
+    val chemCount = remember(allChapters) { allChapters.count { it.subjectId == 2L && (it.status == ChapterEntity.STATUS_COMPLETED || it.status == ChapterEntity.STATUS_REVISED) } }
+    val bioCount = remember(allChapters) { allChapters.count { it.subjectId == 3L && (it.status == ChapterEntity.STATUS_COMPLETED || it.status == ChapterEntity.STATUS_REVISED) } }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(vertical = 16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(vertical = 14.dp)
     ) {
-        // 1. Header greeting & Date
+        // 1. Mission & Exam Countdown Header Banner
         item {
-            Column {
-                Text(
-                    text = "Welcome back, Rudra",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    text = todayDateFormatted,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            GlassCard(
+                backgroundColor = AccentNavy.copy(alpha = 0.35f),
+                borderColor = AccentElectricBlue.copy(alpha = 0.5f),
+                onClick = { viewModel.navigateTo(Screen.MissionBoard) }
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = AccentElectricBlue.copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    text = targetBoard,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AccentElectricBlue,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = ScoreGreen.copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    text = "Target: $targetScore",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ScoreGreen,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Rudra's PCB Battle Station",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = todayDateFormatted,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(AccentElectricBlue.copy(alpha = 0.15f))
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "$daysRemaining",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentElectricBlue
+                        )
+                        Text(
+                            text = "DAYS LEFT",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
 
@@ -116,55 +207,89 @@ fun DashboardScreen(
             }
         }
 
-        // 2. Emergency Falling Behind or Low Energy Banner (if active or overdue items exist)
-        if (isLowEnergy) {
-            item {
-                GlassCard(
-                    backgroundColor = ScoreYellowBg.copy(alpha = 0.25f),
-                    borderColor = ScoreYellow.copy(alpha = 0.5f)
+        // 2. PCB Syllabus Progress Summary Card
+        item {
+            GlassCard(
+                onClick = { viewModel.navigateTo(Screen.Subjects) }
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(Icons.Default.BatteryChargingFull, contentDescription = null, tint = ScoreYellow)
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Low Energy Mode Active",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = ScoreYellow
-                            )
-                            Text(
-                                text = "Target: 2-3/7. Planned battery saver mode. Zero guilt today.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
+                    Column {
+                        Text(
+                            text = "PCB SYLLABUS READINESS",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentElectricBlue,
+                            letterSpacing = 1.sp
+                        )
+                        Text(
+                            text = "$completedChapters / 46 Chapters Mastered",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
+                    Text(
+                        text = "${((completedChapters / 46.0) * 100).toInt()}%",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = ScoreGreen
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                LinearProgressIndicator(
+                    progress = { (completedChapters / 46f).coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp)),
+                    color = AccentElectricBlue,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    SubjectProgressPill("Physics", "$phyCount/15", AccentElectricBlue)
+                    SubjectProgressPill("Chemistry", "$chemCount/15", AccentCyan)
+                    SubjectProgressPill("Biology", "$bioCount/16", ScoreGreen)
                 }
             }
-        } else if (overdueTasks.isNotEmpty()) {
+        }
+
+        // 3. Weak Chapters Alert Banner (if any)
+        if (weakChapters.isNotEmpty()) {
             item {
-                GlassCard(
-                    backgroundColor = ScoreRedBg.copy(alpha = 0.2f),
-                    borderColor = ScoreRed.copy(alpha = 0.5f),
-                    onClick = { viewModel.navigateTo(Screen.EmergencyRecovery) }
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = ScoreRedBg.copy(alpha = 0.25f),
+                    border = BorderStroke(1.dp, ScoreRed.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.navigateTo(Screen.WeakChapters) }
+                        .testTag("weak_chapters_dashboard_banner")
                 ) {
                     Row(
+                        modifier = Modifier.padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(Icons.Default.WarningAmber, contentDescription = null, tint = ScoreRed)
+                        Icon(Icons.Default.WarningAmber, contentDescription = null, tint = ScoreRed, modifier = Modifier.size(28.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Falling Behind? ${overdueTasks.size} Overdue Task(s)",
-                                style = MaterialTheme.typography.titleMedium,
+                                text = "Weak Area Radar: ${weakChapters.size} Chapters Need Fixing",
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = ScoreRed
                             )
                             Text(
-                                text = "Tap for 3-Step Reset Protocol & Minimum Viable Day",
+                                text = "Top: ${weakChapters.first().title} • Tap for 1-click PYQ action plan",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -175,7 +300,144 @@ fun DashboardScreen(
             }
         }
 
-        // 3. Discipline Scorecard Overview Card
+        // 4. Quick Action Grid
+        item {
+            SectionHeader(title = "Fast Launch Actions")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Action 1: Let's Study PW
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { viewModel.navigateTo(Screen.LetsStudy) }
+                        .testTag("quick_action_lets_study"),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(Icons.Default.PlayLesson, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(22.dp))
+                        Text("Let's Study", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Text("PW Thor Live", style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                // Action 2: Study Timer
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { viewModel.navigateTo(Screen.StudySession) }
+                        .testTag("quick_action_study_timer"),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(Icons.Default.Timer, contentDescription = null, tint = AccentElectricBlue, modifier = Modifier.size(22.dp))
+                        Text("Deep Timer", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Text("Stopwatch", style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                // Action 3: AI Study Coach
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { viewModel.navigateTo(Screen.AiCoach) }
+                        .testTag("quick_action_ai_coach"),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = ScoreYellow, modifier = Modifier.size(22.dp))
+                        Text("AI Coach", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Text("Doubt & Quiz", style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                // Action 4: Evening Journal
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { viewModel.navigateTo(Screen.Journal) }
+                        .testTag("quick_action_journal"),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(Icons.Default.EditNote, contentDescription = null, tint = ScoreGreen, modifier = Modifier.size(22.dp))
+                        Text("Shutdown", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Text("3-Line Log", style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+
+        // 5. 5-Pillar Discipline Streaks Quick Overview
+        item {
+            SectionHeader(
+                title = "5-Pillar Discipline Streaks",
+                actionText = "Full Tracker",
+                onActionClick = { viewModel.navigateTo(Screen.Streaks) }
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                allStreaks.forEach { streak ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { viewModel.toggleStreakCheckIn(streak.streakKey) }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "🔥 ${streak.currentStreak}d",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (streak.currentStreak > 0) ScoreGreen else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = streak.title.split(" ").firstOrNull() ?: "",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 9.sp,
+                                maxLines = 1,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 6. Discipline Scorecard Overview Card
         item {
             val score = todayScorecard?.totalScore ?: 0
             GlassCard(
@@ -225,9 +487,9 @@ fun DashboardScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -235,7 +497,7 @@ fun DashboardScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Scorecard roz bharoge — accha ho ya bura, honestly.",
+                        text = "Scorecard roz bharoge — honestly.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f)
@@ -252,156 +514,7 @@ fun DashboardScreen(
             }
         }
 
-        // 4. Quick Action Grid
-        item {
-            SectionHeader(title = "Quick Actions")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                // Action 1: Let's Study PW
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { viewModel.navigateTo(Screen.LetsStudy) }
-                        .testTag("quick_action_lets_study"),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(Icons.Default.PlayLesson, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(24.dp))
-                        Text("Let's Study", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
-                        Text("PW Thor Live", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-
-                // Action 2: Study Timer
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { viewModel.navigateTo(Screen.StudySession) }
-                        .testTag("quick_action_study_timer"),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(Icons.Default.Timer, contentDescription = null, tint = AccentElectricBlue, modifier = Modifier.size(24.dp))
-                        Text("Study Timer", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
-                        Text("Deep Focus", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-
-                // Action 3: Evening Journal
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { viewModel.navigateTo(Screen.Journal) }
-                        .testTag("quick_action_journal"),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(Icons.Default.EditNote, contentDescription = null, tint = ScoreGreen, modifier = Modifier.size(24.dp))
-                        Text("Shutdown", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
-                        Text("3-Line Journal", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-        }
-
-        // 5. Today's Timeline Anchor
-        item {
-            SectionHeader(
-                title = "Today's Study Blocks",
-                actionText = "View All",
-                onActionClick = { viewModel.navigateTo(Screen.Timeline) }
-            )
-
-            val studyBlocks = currentTimelineBlocks.filter { it.category == "Study" || it.category == "Shutdown" }.take(4)
-            if (studyBlocks.isEmpty()) {
-                GlassCard {
-                    Text("No timeline active. Tap to choose a routine.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    studyBlocks.forEach { block ->
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Checkbox(
-                                    checked = block.isCompleted,
-                                    onCheckedChange = { checked ->
-                                        coroutineScope.launch {
-                                            viewModel.repository.updateBlockCompletion(block.id, checked)
-                                        }
-                                    },
-                                    modifier = Modifier.testTag("block_check_${block.id}")
-                                )
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text(
-                                            text = block.title,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = MaterialTheme.colorScheme.surfaceVariant
-                                        ) {
-                                            Text(
-                                                text = "${block.startTime}–${block.endTime}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                    if (block.triggerAction.isNotBlank()) {
-                                        Text(
-                                            text = "⚡ Trigger: ${block.triggerAction}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = AccentElectricBlue
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 6. Spaced Repetition Due Today
+        // 7. Spaced Repetition Due Today
         item {
             SectionHeader(
                 title = "Due Revisions Today (${dueRevisions.size})",
@@ -417,7 +530,7 @@ fun DashboardScreen(
                     ) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ScoreGreen)
                         Text(
-                            text = "All revisions up to date for today!",
+                            text = "All PCB revisions up to date for today!",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -465,7 +578,7 @@ fun DashboardScreen(
                                 }
 
                                 Button(
-                                    onClick = { viewModel.markRevisionDone(rev.id, rev.chapterId, rev.intervalLabel) },
+                                    onClick = { viewModel.markRevisionCompleted(rev, 5, "Completed from dashboard") },
                                     shape = RoundedCornerShape(10.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = ScoreGreen),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
@@ -473,7 +586,7 @@ fun DashboardScreen(
                                 ) {
                                     Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Revised", fontSize = 12.sp)
+                                    Text("Done", fontSize = 12.sp)
                                 }
                             }
                         }
@@ -482,7 +595,7 @@ fun DashboardScreen(
             }
         }
 
-        // 7. Pending Tasks
+        // 8. Pending Tasks
         item {
             SectionHeader(
                 title = "Pending Tasks (${pendingTasks.size})",
@@ -509,11 +622,7 @@ fun DashboardScreen(
                             ) {
                                 Checkbox(
                                     checked = task.isCompleted,
-                                    onCheckedChange = { checked ->
-                                        coroutineScope.launch {
-                                            viewModel.repository.updateTaskCompletion(task.id, checked)
-                                        }
-                                    },
+                                    onCheckedChange = { viewModel.toggleTaskDone(task) },
                                     modifier = Modifier.testTag("task_dashboard_check_${task.id}")
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
@@ -523,9 +632,9 @@ fun DashboardScreen(
                                         fontWeight = FontWeight.Medium,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
-                                    if (task.subjectName.isNotBlank() || task.dueDate != null) {
+                                    if (task.dueDate != null) {
                                         Text(
-                                            text = "${task.subjectName} • Due: ${task.dueDate ?: "Today"}",
+                                            text = "Due: ${task.dueDate}",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -538,12 +647,12 @@ fun DashboardScreen(
             }
         }
 
-        // 8. Instant Brain Dump / Parking Lot quick input
+        // 9. Instant Brain Dump quick input
         item {
-            SectionHeader(title = "Quick Capture / Parking Lot")
+            SectionHeader(title = "Parking Lot / Distraction Capture")
             GlassCard {
                 Text(
-                    text = "Jot down random distraction thoughts so your mind stays clear for study.",
+                    text = "Jot down random distraction thoughts so your mind stays clear for PCB study.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -566,7 +675,7 @@ fun DashboardScreen(
                     Button(
                         onClick = {
                             if (quickBrainDumpText.isNotBlank()) {
-                                viewModel.saveBrainDump(quickBrainDumpText, "Parking Lot (Study Distraction)")
+                                viewModel.insertBrainDump(quickBrainDumpText, "Parking Lot")
                                 quickBrainDumpText = ""
                             }
                         },
@@ -578,30 +687,6 @@ fun DashboardScreen(
                 }
             }
         }
-
-        // 9. Core Operating Principles Card (from PDF page 1)
-        item {
-            GlassCard(
-                backgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-            ) {
-                Text(
-                    text = "CORE PHILOSOPHY",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = AccentElectricBlue,
-                    letterSpacing = 1.sp
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "1. Consistency > Intensity: 40% effort daily beats 100% for 2 days then zero.\n" +
-                           "2. Identity > Goals: Tum wo insaan ho jo roz apna kaam karta hai.\n" +
-                           "3. System > Willpower: Agar Plan A fail ho, backup turant activate hota hai. Never Zero Day.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    lineHeight = 20.sp
-                )
-            }
-        }
     }
 
     // Quick Scorecard Check-in Modal Dialog
@@ -609,11 +694,30 @@ fun DashboardScreen(
         QuickScorecardDialog(
             todayScorecard = todayScorecard,
             onDismiss = { showQuickScorecardDialog = false },
-            onSave = { w630, b1, b3, fit, b5, shut, noPhone, notes ->
-                viewModel.saveScorecard(w630, b1, b3, fit, b5, shut, noPhone, notes)
+            onSave = { b1, b3, b5, shut, noPorn, running, rev, notes ->
+                viewModel.updateTodayScorecard(b1, b3, b5, shut, noPorn, running, rev, notes)
                 showQuickScorecardDialog = false
             }
         )
+    }
+}
+
+@Composable
+fun SubjectProgressPill(subject: String, count: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = color.copy(alpha = 0.12f),
+        border = BorderStroke(0.5.dp, color.copy(alpha = 0.35f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(color))
+            Text(subject, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+            Text(count, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = color)
+        }
     }
 }
 
@@ -651,13 +755,13 @@ fun QuickScorecardDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                ScoreItemRow(label = "Woke up by 6:30 AM (Hard Cap)", checked = woke630, onToggle = { woke630 = it })
-                ScoreItemRow(label = "Completed Study Block 1 (Deep Focus)", checked = block1, onToggle = { block1 = it })
-                ScoreItemRow(label = "Completed Study Block 3 (Main Theory)", checked = block3, onToggle = { block3 = it })
-                ScoreItemRow(label = "Completed Fitness Block (Min 15m)", checked = fitness, onToggle = { fitness = it })
-                ScoreItemRow(label = "Completed Study Block 5 (Revision)", checked = block5, onToggle = { block5 = it })
-                ScoreItemRow(label = "Did Shutdown Ritual (9:15 PM)", checked = shutdown, onToggle = { shutdown = it })
-                ScoreItemRow(label = "No Phone during blocked study hours", checked = noPhone, onToggle = { noPhone = it })
+                ScoreItemRow(label = "1. Woke up by 6:30 AM (Hard Cap)", checked = woke630, onToggle = { woke630 = it })
+                ScoreItemRow(label = "2. Completed Block 1 (Deep Morning Study)", checked = block1, onToggle = { block1 = it })
+                ScoreItemRow(label = "3. Completed Block 3 (Afternoon Deep Work)", checked = block3, onToggle = { block3 = it })
+                ScoreItemRow(label = "4. Completed Fitness (Min 15 min workout)", checked = fitness, onToggle = { fitness = it })
+                ScoreItemRow(label = "5. Completed Block 5 (Evening PCB Revision)", checked = block5, onToggle = { block5 = it })
+                ScoreItemRow(label = "6. Completed Shutdown Ritual (9:15 PM)", checked = shutdown, onToggle = { shutdown = it })
+                ScoreItemRow(label = "7. No Phone / Clean Focus during study", checked = noPhone, onToggle = { noPhone = it })
 
                 Spacer(modifier = Modifier.height(6.dp))
                 OutlinedTextField(

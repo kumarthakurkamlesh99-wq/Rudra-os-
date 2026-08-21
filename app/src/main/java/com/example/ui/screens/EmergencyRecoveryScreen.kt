@@ -19,6 +19,7 @@ import com.example.ui.components.GlassCard
 import com.example.ui.components.SectionHeader
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.RudraViewModel
+import com.example.ui.viewmodel.Screen
 import kotlinx.coroutines.launch
 
 @Composable
@@ -66,6 +67,45 @@ fun EmergencyRecoveryScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface
                         )
+                    }
+                }
+            }
+        }
+
+        // Quick 25-Min Micro Study Session Button
+        item {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = AccentNavy.copy(alpha = 0.35f),
+                border = BorderStroke(1.dp, AccentElectricBlue.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("1-Tap Micro Study Reset", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("25 mins • Zero friction • Break inertia immediately", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            viewModel.startTimer(subject = "Emergency Micro Reset", chapter = "High-Yield Formulas / NCERT", targetMinutes = 25)
+                            viewModel.navigateTo(Screen.StudySession)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Start 25-Min Micro Focus Session")
                     }
                 }
             }

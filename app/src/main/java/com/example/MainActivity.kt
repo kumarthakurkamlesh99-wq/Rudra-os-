@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -101,6 +102,15 @@ fun RudraLifeOsApp(viewModel: RudraViewModel) {
     val currentScreen by viewModel.currentScreen.collectAsState()
     val isLowEnergy by viewModel.isLowEnergyMode.collectAsState()
 
+    // Handle Back Button Gracefully
+    BackHandler(enabled = drawerState.isOpen || currentScreen !is Screen.Dashboard) {
+        if (drawerState.isOpen) {
+            coroutineScope.launch { drawerState.close() }
+        } else if (currentScreen !is Screen.Dashboard) {
+            viewModel.navigateTo(Screen.Dashboard)
+        }
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -140,9 +150,15 @@ fun RudraLifeOsApp(viewModel: RudraViewModel) {
             val modifier = Modifier.padding(innerPadding)
             when (currentScreen) {
                 is Screen.Dashboard -> DashboardScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.Subjects -> SubjectsScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.WeakChapters -> WeakChaptersScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.MockTests -> MockTestTrackerScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.LectureTracker -> LectureTrackerScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.AiCoach -> AiStudyCoachScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.MissionBoard -> MissionBoardScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.Streaks -> StreakTrackerScreen(viewModel = viewModel, modifier = modifier)
                 is Screen.Timeline -> TimelineScreen(viewModel = viewModel, modifier = modifier)
                 is Screen.LetsStudy -> LetsStudyScreen(viewModel = viewModel, modifier = modifier)
-                is Screen.Subjects -> SubjectsScreen(viewModel = viewModel, modifier = modifier)
                 is Screen.Revision -> RevisionScreen(viewModel = viewModel, modifier = modifier)
                 is Screen.Tasks -> TasksScreen(viewModel = viewModel, modifier = modifier)
                 is Screen.StudySession -> StudySessionScreen(viewModel = viewModel, modifier = modifier)
