@@ -21,19 +21,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
-      - name: List Directory Contents
-        run: |
-          echo "=== Root Directory Listing ==="
-          ls -la
-          echo "=== Directory Tree Structure ==="
-          find . -maxdepth 3 -not -path '*/.*' -not -path './.git*' | sort
-          echo "=== Gradle Directory Contents ==="
-          ls -la gradle/ gradle/wrapper/ 2>/dev/null || echo "No gradle directory found"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -50,31 +41,28 @@ jobs:
           gradle-version: '8.11.1'
           cache-read-only: false
 
-      - name: Ensure Gradle Wrapper and Executable
+      - name: Prepare Gradle Wrapper
         run: |
+          echo "Checking Gradle wrapper components..."
           if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "Generating Gradle Wrapper..."
-            gradle wrapper --gradle-version 8.11.1 --distribution-type bin || true
+            echo "Generating Gradle Wrapper binaries..."
+            gradle wrapper --gradle-version 8.11.1 --distribution-type bin
           fi
-          if [ -f "gradlew" ]; then
-            chmod +x gradlew
-            echo "gradlew is present and executable:"
-            ls -la gradlew
-          else
-            echo "::error::gradlew executable not found!"
-            exit 1
-          fi
+          chmod +x gradlew
 
-      - name: Ensure Environment Configuration
+      - name: Initialize Environment Secrets File
         run: |
-          if [ ! -f ".env" ] && [ -f ".env.example" ]; then
-            echo "Copying .env.example to .env..."
-            cp .env.example .env
-          elif [ ! -f ".env" ]; then
-            touch .env
+          if [ ! -f ".env" ]; then
+            if [ -f ".env.example" ]; then
+              echo "Initializing .env from .env.example"
+              cp .env.example .env
+            else
+              echo "Creating blank .env"
+              touch .env
+            fi
           fi
 
-      - name: Check and Decode Release Keystore
+      - name: Setup Signing Configuration
         id: setup_signing
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
@@ -83,22 +71,19 @@ jobs:
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
         run: |
           if [ -n "$SIGNING_KEY" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ] && [ -n "$STORE_PASSWORD" ]; then
-            echo "All release signing secrets are provided. Decoding keystore..."
+            echo "Signing secrets detected. Decoding release keystore..."
             echo "$SIGNING_KEY" | base64 --decode > "${{ github.workspace }}/release.keystore"
-            echo "SIGNING_CONFIGURED=true" >> $GITHUB_ENV
             echo "KEYSTORE_PATH=${{ github.workspace }}/release.keystore" >> $GITHUB_ENV
+            echo "SIGNING_CONFIGURED=true" >> $GITHUB_ENV
           else
-            echo "Release signing secrets not fully provided. Building unsigned release APK..."
+            echo "Signing secrets not present or incomplete. Release build will use fallback signing."
             echo "SIGNING_CONFIGURED=false" >> $GITHUB_ENV
           fi
 
-      - name: Clean Project
-        run: ./gradlew clean --stacktrace --no-daemon
+      - name: Clean & Assemble Debug APK
+        run: ./gradlew clean assembleDebug --stacktrace --no-daemon
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace --no-daemon
-
-      - name: Build Release APK
+      - name: Assemble Release APK
         env:
           KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
@@ -106,31 +91,32 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease --stacktrace --no-daemon
 
-      - name: Prepare APK Artifacts
+      - name: Collect APK Artifacts
         run: |
           mkdir -p artifacts
           
-          # Locate and copy Debug APK
-          DEBUG_APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          # Debug APK
+          DEBUG_APK=$(find app/build/outputs/apk/debug -type f -name "*.apk" | head -n 1)
           if [ -n "$DEBUG_APK" ] && [ -f "$DEBUG_APK" ]; then
-            echo "Found Debug APK at $DEBUG_APK"
+            echo "Found Debug APK: $DEBUG_APK"
             cp "$DEBUG_APK" artifacts/app-debug.apk
           else
-            echo "::error::Debug APK was not generated!"
+            echo "::error::Debug APK not found!"
             exit 1
           fi
 
-          # Locate and copy Release APK (signed or unsigned)
-          RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          # Release APK
+          RELEASE_APK=$(find app/build/outputs/apk/release -type f -name "*.apk" | head -n 1)
           if [ -n "$RELEASE_APK" ] && [ -f "$RELEASE_APK" ]; then
-            echo "Found Release APK at $RELEASE_APK"
+            echo "Found Release APK: $RELEASE_APK"
             cp "$RELEASE_APK" artifacts/app-release.apk
           else
-            echo "::error::Release APK was not generated!"
+            echo "::error::Release APK not found!"
             exit 1
           fi
 
-          ls -lah artifacts/
+          echo "Generated Artifacts:"
+          ls -lh artifacts/
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
