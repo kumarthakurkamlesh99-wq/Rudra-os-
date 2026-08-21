@@ -32,8 +32,8 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v4
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -46,16 +46,23 @@ jobs:
             chmod +x gradlew
           fi
 
-      - name: Decode Release Keystore
-        id: decode_keystore
-        if: ${{ env.SIGNING_KEY != '' }}
+      - name: Check and Decode Release Keystore
+        id: setup_signing
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
         run: |
-          echo "Decoding release signing key from GitHub Secrets..."
-          echo "$SIGNING_KEY" | base64 --decode > "${{ github.workspace }}/release.keystore"
-          echo "KEYSTORE_EXISTS=true" >> $GITHUB_ENV
-          echo "KEYSTORE_PATH=${{ github.workspace }}/release.keystore" >> $GITHUB_ENV
+          if [ -n "$SIGNING_KEY" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ] && [ -n "$STORE_PASSWORD" ]; then
+            echo "All release signing secrets are provided. Decoding keystore..."
+            echo "$SIGNING_KEY" | base64 --decode > "${{ github.workspace }}/release.keystore"
+            echo "SIGNING_CONFIGURED=true" >> $GITHUB_ENV
+            echo "KEYSTORE_PATH=${{ github.workspace }}/release.keystore" >> $GITHUB_ENV
+          else
+            echo "Release signing secrets not fully provided. Building unsigned release APK..."
+            echo "SIGNING_CONFIGURED=false" >> $GITHUB_ENV
+          fi
 
       - name: Build Debug APK
         run: |
@@ -91,7 +98,7 @@ jobs:
             echo "::warning::Debug APK not found in default output directory"
           fi
 
-          # Locate and copy Release APK
+          # Locate and copy Release APK (signed or unsigned)
           RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
           if [ -n "$RELEASE_APK" ] && [ -f "$RELEASE_APK" ]; then
             echo "Found Release APK at $RELEASE_APK"
