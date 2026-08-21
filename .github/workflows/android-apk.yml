@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android Debug APK
 
 on:
   push:
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build & Package APKs
+    name: Build Debug APK
     runs-on: ubuntu-latest
 
     steps:
@@ -53,7 +53,7 @@ jobs:
           fi
           chmod +x gradlew
 
-      - name: Prepare Environment and Google Services Configurations
+      - name: Prepare Environment Configurations
         run: |
           # 1. Ensure .env exists
           if [ ! -f ".env" ]; then
@@ -102,40 +102,12 @@ jobs:
           EOF
           fi
 
-      - name: Setup Signing Configuration
-        id: setup_signing
-        env:
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-        run: |
-          if [ -n "$SIGNING_KEY" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ] && [ -n "$STORE_PASSWORD" ]; then
-            echo "Signing secrets detected. Decoding release keystore..."
-            echo "$SIGNING_KEY" | base64 --decode > "${{ github.workspace }}/release.keystore"
-            echo "KEYSTORE_PATH=${{ github.workspace }}/release.keystore" >> $GITHUB_ENV
-            echo "SIGNING_CONFIGURED=true" >> $GITHUB_ENV
-          else
-            echo "Signing secrets not present or incomplete. Release build will use fallback signing."
-            echo "SIGNING_CONFIGURED=false" >> $GITHUB_ENV
-          fi
-
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-configuration-cache --stacktrace --no-daemon
 
-      - name: Build Release APK
-        env:
-          KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --no-configuration-cache --stacktrace --no-daemon
-
-      - name: Collect APK Artifacts
+      - name: Collect Debug APK Artifact
         run: |
           mkdir -p artifacts
-          
-          # Debug APK
           DEBUG_APK=$(find app/build/outputs/apk/debug -type f -name "*.apk" | head -n 1)
           if [ -n "$DEBUG_APK" ] && [ -f "$DEBUG_APK" ]; then
             echo "Found Debug APK: $DEBUG_APK"
@@ -144,18 +116,6 @@ jobs:
             echo "::error::Debug APK was not generated!"
             exit 1
           fi
-
-          # Release APK
-          RELEASE_APK=$(find app/build/outputs/apk/release -type f -name "*.apk" | head -n 1)
-          if [ -n "$RELEASE_APK" ] && [ -f "$RELEASE_APK" ]; then
-            echo "Found Release APK: $RELEASE_APK"
-            cp "$RELEASE_APK" artifacts/app-release.apk
-          else
-            echo "::error::Release APK was not generated!"
-            exit 1
-          fi
-
-          echo "Generated Artifacts:"
           ls -lh artifacts/
 
       - name: Upload Debug APK Artifact
@@ -163,13 +123,5 @@ jobs:
         with:
           name: app-debug
           path: artifacts/app-debug.apk
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload Release APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release
-          path: artifacts/app-release.apk
           if-no-files-found: error
           retention-days: 30
