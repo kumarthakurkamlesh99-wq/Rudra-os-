@@ -78,5 +78,5 @@ class NotificationPermissionManager(private val context: Context) {
         preferences.setPermissionPromptShown(true)
     }
 
-    val isPermissionPromptShown: Flow<Boolean> = preferences.isPermissionPromptShown
+    val isPermissionPromptShown: Flow<Boolean> = preferences.permissionPromptShown
 }

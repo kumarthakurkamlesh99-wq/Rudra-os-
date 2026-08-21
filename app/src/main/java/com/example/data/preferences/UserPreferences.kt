@@ -73,6 +73,7 @@ class UserPreferences(private val context: Context) {
     val block3Time: Flow<String> = context.dataStore.data.map { it[KEY_BLOCK3_TIME] ?: "15:30" }
     val block5Time: Flow<String> = context.dataStore.data.map { it[KEY_BLOCK5_TIME] ?: "20:15" }
     val shutdownTime: Flow<String> = context.dataStore.data.map { it[KEY_SHUTDOWN_TIME] ?: "21:15" }
+    val permissionPromptShown: Flow<Boolean> = context.dataStore.data.map { it[KEY_PERMISSION_PROMPT_SHOWN] ?: false }
 
     suspend fun setThemeMode(mode: String) {
         context.dataStore.edit { preferences ->

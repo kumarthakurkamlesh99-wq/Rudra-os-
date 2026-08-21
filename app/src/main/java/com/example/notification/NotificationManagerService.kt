@@ -261,6 +261,7 @@ class NotificationManagerService(private val context: Context) {
 
     // 2. Revision Due Notification
     fun showRevisionDueNotification(
+        title: String = "Revision Due",
         message: String = "You have revisions scheduled today."
     ) {
         if (!hasPermission()) return
@@ -269,7 +270,7 @@ class NotificationManagerService(private val context: Context) {
 
         val builder = NotificationCompat.Builder(context, NotificationConstants.CHANNEL_ID_REVISIONS)
             .setSmallIcon(android.R.drawable.ic_menu_agenda)
-            .setContentTitle("Revision Due")
+            .setContentTitle(title)
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setPriority(NotificationCompat.PRIORITY_HIGH)

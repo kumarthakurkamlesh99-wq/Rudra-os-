@@ -61,6 +61,8 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "20:15")
     val shutdownTime: StateFlow<String> = preferences.shutdownTime
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "21:15")
+    val permissionPromptShown: StateFlow<Boolean> = preferences.permissionPromptShown
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     init {
         // Initialize Real Android Notification Channels and WorkManager sync
@@ -419,6 +421,12 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             preferences.setNotificationsEnabled(enabled)
             com.example.notification.RudraAlarmScheduler.rescheduleAllRoutineAlarms(getApplication(), preferences)
+        }
+    }
+
+    fun setPermissionPromptShown(shown: Boolean) {
+        viewModelScope.launch {
+            preferences.setPermissionPromptShown(shown)
         }
     }
 
