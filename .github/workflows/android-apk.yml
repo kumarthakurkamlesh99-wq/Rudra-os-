@@ -32,29 +32,67 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Gradle 8.11.1
+      - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.11.1'
+          gradle-version: '9.3.1'
           cache-read-only: false
 
       - name: Prepare Gradle Wrapper & Permissions
         run: |
           echo "Setting up Gradle wrapper binaries..."
-          gradle wrapper --gradle-version 8.11.1 --distribution-type bin
+          gradle wrapper --gradle-version 9.3.1 --distribution-type bin || true
           chmod +x gradlew
           ls -la gradlew gradle/wrapper/
 
-      - name: Prepare Secrets and Environment Files
+      - name: Prepare Environment and Google Services Configurations
         run: |
-          # Create .env from .env.example or fallback
-          if [ -f ".env.example" ]; then
-            cp .env.example .env
-          else
-            touch .env
+          # 1. Create .env from .env.example or fallback
+          if [ ! -f ".env" ]; then
+            if [ -f ".env.example" ]; then
+              cp .env.example .env
+            else
+              touch .env
+            fi
           fi
           echo "GEMINI_API_KEY=dummy_placeholder_key" >> .env
           echo "Created .env successfully"
+
+          # 2. Ensure fallback google-services.json exists
+          if [ ! -f "app/google-services.json" ]; then
+            echo "Generating fallback app/google-services.json for Google Services plugin..."
+            cat << 'EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "placeholder-project",
+              "storage_bucket": "placeholder-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:abcdef",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.rudralifeos.bxzkpm"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  {
+                    "current_key": "AIzaSyDummyApiKeyPlaceholder"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": []
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+          fi
 
       - name: Build Debug APK
         run: |
