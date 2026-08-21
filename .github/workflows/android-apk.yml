@@ -92,13 +92,11 @@ jobs:
             echo "SIGNING_CONFIGURED=false" >> $GITHUB_ENV
           fi
 
+      - name: Clean Project
+        run: ./gradlew clean --stacktrace --no-daemon
+
       - name: Build Debug APK
-        run: |
-          if [ -x "./gradlew" ]; then
-            ./gradlew assembleDebug --stacktrace --no-daemon
-          else
-            gradle assembleDebug --stacktrace --no-daemon
-          fi
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
 
       - name: Build Release APK
         env:
@@ -106,12 +104,7 @@ jobs:
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          if [ -x "./gradlew" ]; then
-            ./gradlew assembleRelease --stacktrace --no-daemon
-          else
-            gradle assembleRelease --stacktrace --no-daemon
-          fi
+        run: ./gradlew assembleRelease --stacktrace --no-daemon
 
       - name: Prepare APK Artifacts
         run: |
@@ -123,7 +116,8 @@ jobs:
             echo "Found Debug APK at $DEBUG_APK"
             cp "$DEBUG_APK" artifacts/app-debug.apk
           else
-            echo "::warning::Debug APK not found in default output directory"
+            echo "::error::Debug APK was not generated!"
+            exit 1
           fi
 
           # Locate and copy Release APK (signed or unsigned)
@@ -132,7 +126,8 @@ jobs:
             echo "Found Release APK at $RELEASE_APK"
             cp "$RELEASE_APK" artifacts/app-release.apk
           else
-            echo "::warning::Release APK not found in default output directory"
+            echo "::error::Release APK was not generated!"
+            exit 1
           fi
 
           ls -lah artifacts/
@@ -142,7 +137,7 @@ jobs:
         with:
           name: app-debug
           path: artifacts/app-debug.apk
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
       - name: Upload Release APK Artifact
@@ -150,13 +145,5 @@ jobs:
         with:
           name: app-release
           path: artifacts/app-release.apk
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Upload All APKs
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-apks
-          path: artifacts/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
