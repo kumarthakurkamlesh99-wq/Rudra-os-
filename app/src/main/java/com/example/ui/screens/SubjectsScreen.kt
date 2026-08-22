@@ -51,6 +51,8 @@ fun SubjectsScreen(
     var selectedChapterForAi by remember { mutableStateOf<ChapterEntity?>(null) }
     var showAiModal by remember { mutableStateOf(false) }
     var showEditChapterModal by remember { mutableStateOf<ChapterEntity?>(null) }
+    var showAddSubjectModal by remember { mutableStateOf(false) }
+    var showAddChapterModal by remember { mutableStateOf(false) }
     var filterStatus by remember { mutableStateOf("All") }
 
     // Progress calculations
@@ -114,6 +116,18 @@ fun SubjectsScreen(
                             selectedLabelColor = AccentElectricBlue
                         ),
                         modifier = Modifier.testTag("subject_tab_${subject.name.lowercase()}")
+                    )
+                }
+
+                item {
+                    AssistChip(
+                        onClick = { showAddSubjectModal = true },
+                        label = { Text("+ Subject", fontSize = 13.sp) },
+                        leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                        ),
+                        modifier = Modifier.testTag("add_subject_chip")
                     )
                 }
             }
@@ -198,11 +212,33 @@ fun SubjectsScreen(
 
         // Chapters List Header
         item {
-            SectionHeader(
-                title = "${currentSubject?.name ?: "Subject"} Chapters (${filteredChapters.size})",
-                actionText = "Weak Area Radar",
-                onActionClick = { viewModel.navigateTo(Screen.WeakChapters) }
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${currentSubject?.name ?: "Subject"} Chapters (${filteredChapters.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = { showAddChapterModal = true },
+                        modifier = Modifier.testTag("add_chapter_btn")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("+ Chapter", fontSize = 12.sp)
+                    }
+                    TextButton(
+                        onClick = { viewModel.navigateTo(Screen.WeakChapters) }
+                    ) {
+                        Text("Weak Radar", fontSize = 12.sp)
+                    }
+                }
+            }
         }
 
         // Chapters List
@@ -244,6 +280,30 @@ fun SubjectsScreen(
             onSave = { updated ->
                 viewModel.updateChapter(updated)
                 showEditChapterModal = null
+            }
+        )
+    }
+
+    // Add Subject Modal
+    if (showAddSubjectModal) {
+        AddSubjectDialog(
+            onDismiss = { showAddSubjectModal = false },
+            onSave = { newSubject ->
+                viewModel.addSubject(newSubject)
+                showAddSubjectModal = false
+            }
+        )
+    }
+
+    // Add Chapter Modal
+    if (showAddChapterModal && currentSubject != null) {
+        AddChapterDialog(
+            subjectId = currentSubject.id,
+            subjectName = currentSubject.name,
+            onDismiss = { showAddChapterModal = false },
+            onSave = { newChapter ->
+                viewModel.insertChapter(newChapter)
+                showAddChapterModal = false
             }
         )
     }
@@ -871,3 +931,181 @@ fun EditChapterProgressDialog(
         }
     )
 }
+
+@Composable
+fun AddSubjectDialog(
+    onDismiss: () -> Unit,
+    onSave: (SubjectEntity) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var selectedColor by remember { mutableStateOf("#1E88E5") }
+
+    val colorOptions = listOf("#1E88E5", "#43A047", "#8E24AA", "#F59E0B", "#E53935", "#00ACC1")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Subject", style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        if (code.isBlank() || code.length <= 4) {
+                            code = it.take(4).uppercase()
+                        }
+                    },
+                    label = { Text("Subject Name (e.g. Zoology)") },
+                    modifier = Modifier.fillMaxWidth().testTag("subject_name_input"),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it.uppercase().take(6) },
+                    label = { Text("Code (e.g. ZOO)") },
+                    modifier = Modifier.fillMaxWidth().testTag("subject_code_input"),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Text("Subject Accent Color", style = MaterialTheme.typography.labelMedium)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(colorOptions) { hex ->
+                        val color = Color(android.graphics.Color.parseColor(hex))
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                                .clickable { selectedColor = hex }
+                                .then(
+                                    if (selectedColor == hex) Modifier.padding(2.dp) else Modifier
+                                )
+                        ) {
+                            if (selectedColor == hex) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.align(Alignment.Center).size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (name.isNotBlank()) {
+                        val finalCode = code.ifBlank { name.take(4).uppercase() }
+                        onSave(
+                            SubjectEntity(
+                                name = name.trim(),
+                                code = finalCode.trim(),
+                                colorHex = selectedColor,
+                                description = description.trim().ifBlank { "$name Class 12 Syllabus" }
+                            )
+                        )
+                    }
+                },
+                modifier = Modifier.testTag("save_subject_button")
+            ) {
+                Text("Save Subject")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+fun AddChapterDialog(
+    subjectId: Long,
+    subjectName: String,
+    onDismiss: () -> Unit,
+    onSave: (ChapterEntity) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var totalLectures by remember { mutableStateOf("10") }
+    var priority by remember { mutableStateOf("Normal") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Chapter to $subjectName", style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Chapter Title") },
+                    modifier = Modifier.fillMaxWidth().testTag("chapter_title_input"),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = totalLectures,
+                    onValueChange = { totalLectures = it },
+                    label = { Text("Total Lectures") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Text("Priority", style = MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Normal", "High", "Weak Area").forEach { p ->
+                        FilterChip(
+                            selected = priority == p,
+                            onClick = { priority = p },
+                            label = { Text(p, fontSize = 12.sp) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (title.isNotBlank()) {
+                        val lecs = totalLectures.toIntOrNull() ?: 10
+                        onSave(
+                            ChapterEntity(
+                                subjectId = subjectId,
+                                title = title.trim(),
+                                totalLectures = lecs,
+                                priority = priority,
+                                confidenceRating = if (priority == "Weak Area") 1 else 3,
+                                difficultyRating = if (priority == "Weak Area") 5 else 3
+                            )
+                        )
+                    }
+                },
+                modifier = Modifier.testTag("save_chapter_button")
+            ) {
+                Text("Add Chapter")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+

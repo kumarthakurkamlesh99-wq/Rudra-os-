@@ -20,6 +20,15 @@ interface TimelineDao {
     @Query("SELECT * FROM timeline_presets WHERE id = :presetId")
     suspend fun getPresetById(presetId: Long): TimelinePresetEntity?
 
+    @Query("SELECT COUNT(*) FROM timeline_presets WHERE id = :presetId")
+    suspend fun countPresetById(presetId: Long): Int
+
+    @Query("SELECT id FROM timeline_presets WHERE isActive = 1 LIMIT 1")
+    suspend fun getActivePresetIdSync(): Long?
+
+    @Query("SELECT id FROM timeline_presets ORDER BY id ASC LIMIT 1")
+    suspend fun getFirstPresetIdSync(): Long?
+
     @Query("SELECT * FROM timeline_blocks WHERE presetId = :presetId ORDER BY orderIndex ASC, startTime ASC")
     fun getBlocksForPreset(presetId: Long): Flow<List<TimelineBlockEntity>>
 

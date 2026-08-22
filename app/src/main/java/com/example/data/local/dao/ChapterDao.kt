@@ -19,6 +19,9 @@ interface ChapterDao {
     @Query("SELECT * FROM chapters WHERE id = :id")
     suspend fun getChapterById(id: Long): ChapterEntity?
 
+    @Query("SELECT COUNT(*) FROM chapters WHERE id = :id")
+    suspend fun countChapterById(id: Long): Int
+
     @Query("SELECT * FROM chapters WHERE priority = 'Weak Area' OR confidenceRating <= 2 OR difficultyRating >= 4")
     fun getWeakChapters(): Flow<List<ChapterEntity>>
 

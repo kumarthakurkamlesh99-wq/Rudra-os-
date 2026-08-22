@@ -21,7 +21,7 @@ data class ChapterEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val subjectId: Long,
-    val chapterNumber: Int,
+    val chapterNumber: Int = 1,
     val title: String,
     val status: String = STATUS_NOT_STARTED, // Not Started, Learning, Completed, Revised
     val progressPercent: Int = 0, // 0-100%

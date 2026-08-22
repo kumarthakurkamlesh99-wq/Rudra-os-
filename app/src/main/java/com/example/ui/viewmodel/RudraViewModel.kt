@@ -66,6 +66,159 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
     val permissionPromptShown: StateFlow<Boolean> = preferences.permissionPromptShown
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    // Gemini AI API Configuration Flows
+    val geminiApiKey: StateFlow<String> = preferences.geminiApiKey
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+    val geminiModel: StateFlow<String> = preferences.geminiModel
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "gemini-2.5-flash")
+    val geminiApiStatus: StateFlow<String> = preferences.geminiApiStatus
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "NOT_CONFIGURED")
+    val geminiApiMonitorEnabled: StateFlow<Boolean> = preferences.geminiApiMonitorEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    val geminiLastCheckTime: StateFlow<String> = preferences.geminiLastCheckTime
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "Never")
+    val geminiLastMessage: StateFlow<String> = preferences.geminiLastMessage
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    val apiStatusWarning: StateFlow<ApiWarningInfo?> = combine(
+        geminiApiKey,
+        geminiApiStatus,
+        geminiLastMessage
+    ) { key, status, lastMsg ->
+        when {
+            key.isBlank() -> ApiWarningInfo(
+                status = "NOT_CONFIGURED",
+                title = "API Key Missing",
+                message = "AI Mock Tests, Oral Viva & Doubt Solver require a free Gemini API key from Google AI Studio. Offline question bank is active.",
+                isWarning = true,
+                severity = ApiWarningSeverity.INFO,
+                actionText = "Enter API Key"
+            )
+            status == "INVALID_KEY" -> ApiWarningInfo(
+                status = "INVALID_KEY",
+                title = "Invalid API Key Detected",
+                message = lastMsg.ifBlank { "Google Gemini API rejected this key. Please verify or re-generate your key in Google AI Studio." },
+                isWarning = true,
+                severity = ApiWarningSeverity.ERROR,
+                actionText = "Update Key"
+            )
+            status == "QUOTA_EXCEEDED" -> ApiWarningInfo(
+                status = "QUOTA_EXCEEDED",
+                title = "API Quota Exceeded (429)",
+                message = lastMsg.ifBlank { "You have reached the API rate limit. Wait a few moments or switch to Gemini 2.5 Flash for higher limits." },
+                isWarning = true,
+                severity = ApiWarningSeverity.WARNING,
+                actionText = "Switch to Flash"
+            )
+            status == "NETWORK_ERROR" -> ApiWarningInfo(
+                status = "NETWORK_ERROR",
+                title = "Network Connection Offline",
+                message = lastMsg.ifBlank { "Unable to connect to Google AI servers. Rudra is operating in offline mode with built-in templates." },
+                isWarning = true,
+                severity = ApiWarningSeverity.WARNING,
+                actionText = "Retry Connection"
+            )
+            status == "CONNECTED" -> ApiWarningInfo(
+                status = "CONNECTED",
+                title = "Gemini AI Engine Operational",
+                message = lastMsg.ifBlank { "Connection verified. All AI features (Mock Tests, Oral Viva, Doubt Solver) ready." },
+                isWarning = false,
+                severity = ApiWarningSeverity.SUCCESS,
+                actionText = null
+            )
+            else -> null
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    // Database Error Notifications
+    val databaseErrorMessage: StateFlow<String?> = repository.databaseErrorMessage
+
+    fun clearDatabaseError() {
+        repository.clearDatabaseError()
+    }
+
+    private val _apiTestMessage = MutableStateFlow<String?>(null)
+    val apiTestMessage: StateFlow<String?> = _apiTestMessage.asStateFlow()
+
+    private val _isTestingApi = MutableStateFlow(false)
+    val isTestingApi: StateFlow<Boolean> = _isTestingApi.asStateFlow()
+
+    private var apiMonitorJob: Job? = null
+
+    private fun startApiMonitor() {
+        apiMonitorJob?.cancel()
+        apiMonitorJob = viewModelScope.launch {
+            while (true) {
+                if (preferences.geminiApiMonitorEnabled.first()) {
+                    val key = preferences.geminiApiKey.first()
+                    val model = preferences.geminiModel.first()
+                    if (key.isNotBlank()) {
+                        try {
+                            val (status, message) = geminiService.testApiConnection(key, model)
+                            val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                            val checkTime = timeFormat.format(Date())
+                            preferences.setGeminiApiStatus(status)
+                            preferences.setGeminiLastCheckInfo(checkTime, message)
+                            _apiTestMessage.value = message
+                        } catch (_: Exception) {
+                        }
+                    } else {
+                        preferences.setGeminiApiStatus("NOT_CONFIGURED")
+                    }
+                }
+                // Check periodically every 5 minutes (300,000 ms)
+                delay(300_000L)
+            }
+        }
+    }
+
+    fun setGeminiApiMonitorEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setGeminiApiMonitorEnabled(enabled)
+            if (enabled && geminiApiKey.value.isNotBlank()) {
+                testGeminiApiConnection()
+            }
+        }
+    }
+
+    fun setGeminiApiKey(key: String) {
+        viewModelScope.launch {
+            preferences.setGeminiApiKey(key)
+            if (key.isBlank()) {
+                preferences.setGeminiApiStatus("NOT_CONFIGURED")
+                preferences.setGeminiLastCheckInfo("Just now", "API Key cleared.")
+                _apiTestMessage.value = null
+            } else {
+                testGeminiApiConnection()
+            }
+        }
+    }
+
+    fun setGeminiModel(model: String) {
+        viewModelScope.launch {
+            preferences.setGeminiModel(model)
+            if (geminiApiKey.value.isNotBlank()) {
+                testGeminiApiConnection()
+            }
+        }
+    }
+
+    fun testGeminiApiConnection() {
+        viewModelScope.launch {
+            _isTestingApi.value = true
+            _apiTestMessage.value = null
+            val key = geminiApiKey.value
+            val model = geminiModel.value
+            val (status, message) = geminiService.testApiConnection(key, model)
+            val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+            val checkTime = timeFormat.format(Date())
+            preferences.setGeminiApiStatus(status)
+            preferences.setGeminiLastCheckInfo(checkTime, message)
+            _apiTestMessage.value = message
+            _isTestingApi.value = false
+        }
+    }
+
     // Mission & Exam Countdown Flows
     val targetBoard: StateFlow<String> = repository.targetBoard
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "BSEB Class 12 Board 2027")
@@ -95,6 +248,7 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             com.example.notification.RudraAlarmScheduler.rescheduleAllRoutineAlarms(application, preferences)
         }
+        startApiMonitor()
     }
 
     // Navigation State
@@ -326,7 +480,23 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Chapter Actions
+    // Subject & Chapter Actions
+    fun addSubject(subject: SubjectEntity) {
+        viewModelScope.launch { repository.insertSubject(subject) }
+    }
+
+    fun updateSubject(subject: SubjectEntity) {
+        viewModelScope.launch { repository.updateSubject(subject) }
+    }
+
+    fun deleteSubject(id: Long) {
+        viewModelScope.launch { repository.deleteSubject(id) }
+    }
+
+    fun insertChapter(chapter: ChapterEntity) {
+        viewModelScope.launch { repository.insertChapter(chapter) }
+    }
+
     fun updateChapter(chapter: ChapterEntity) {
         viewModelScope.launch { repository.updateChapter(chapter) }
     }
@@ -698,18 +868,21 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
         chapters: List<String>,
         mode: String,
         difficulty: String,
-        questionTypes: List<QuestionType>,
-        questionCount: Int = 5
+        questionTypes: List<QuestionType> = emptyList(),
+        questionCount: Int = 10
     ) {
         viewModelScope.launch {
             _isTestGenerating.value = true
             _testUserAnswers.value = emptyMap()
-            val result = geminiService.generateTestPaper(
+            val key = geminiApiKey.value
+            val model = geminiModel.value
+            val result = geminiService.generateBoardTestPaper(
+                apiKey = key,
+                model = model,
                 subject = subject,
                 chapters = chapters,
-                mode = mode,
+                scope = mode,
                 difficulty = difficulty,
-                questionTypes = questionTypes,
                 questionCount = questionCount
             )
             _isTestGenerating.value = false
@@ -727,7 +900,14 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
         val test = _generatedTest.value ?: return
         viewModelScope.launch {
             _isTestSubmitting.value = true
-            val evaluated = geminiService.evaluateTestSubmission(test, _testUserAnswers.value)
+            val key = geminiApiKey.value
+            val model = geminiModel.value
+            val evaluated = geminiService.evaluateTestSubmission(
+                apiKey = key,
+                model = model,
+                test = test,
+                userAnswers = _testUserAnswers.value
+            )
             _isTestSubmitting.value = false
             _generatedTest.value = evaluated.getOrNull() ?: test
         }
@@ -761,7 +941,9 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
     fun startVivaSession(subject: String, chapter: String) {
         viewModelScope.launch {
             _isVivaLoading.value = true
-            val firstQ = geminiService.generateVivaQuestion(subject, chapter, 1, emptyList())
+            val key = geminiApiKey.value
+            val model = geminiModel.value
+            val firstQ = geminiService.generateVivaQuestion(key, model, subject, chapter, 1, emptyList())
             _isVivaLoading.value = false
             if (firstQ.isSuccess) {
                 val q = firstQ.getOrNull()!!
@@ -781,7 +963,9 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
         val currentQ = session.questions.getOrNull(session.currentQuestionIndex) ?: return
         viewModelScope.launch {
             _isVivaLoading.value = true
-            val evaluatedQ = geminiService.evaluateVivaAnswer(currentQ, userResponse)
+            val key = geminiApiKey.value
+            val model = geminiModel.value
+            val evaluatedQ = geminiService.evaluateVivaAnswer(key, model, currentQ, userResponse)
             _isVivaLoading.value = false
             val eval = evaluatedQ.getOrElse { currentQ.copy(userResponse = userResponse, isAnswered = true, correctnessScore = 3) }
 
@@ -813,8 +997,10 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             _isVivaLoading.value = true
+            val key = geminiApiKey.value
+            val model = geminiModel.value
             val asked = session.questions.map { it.question }
-            val nextQ = geminiService.generateVivaQuestion(session.subject, session.chapter, nextIdx + 1, asked)
+            val nextQ = geminiService.generateVivaQuestion(key, model, session.subject, session.chapter, nextIdx + 1, asked)
             _isVivaLoading.value = false
             if (nextQ.isSuccess) {
                 val q = nextQ.getOrNull()!!
@@ -843,7 +1029,15 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isDoubtLoading.value = true
             _doubtResult.value = null
-            val result = geminiService.solveDoubtWithImage(subject, doubtText, _selectedDoubtBitmap.value)
+            val key = geminiApiKey.value
+            val model = geminiModel.value
+            val bitmap = _selectedDoubtBitmap.value
+            val imageBytes = if (bitmap != null) {
+                val stream = java.io.ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+                stream.toByteArray()
+            } else null
+            val result = geminiService.solveMultimodalDoubt(key, model, subject, doubtText, imageBytes)
             _isDoubtLoading.value = false
             _doubtResult.value = result.getOrNull()
         }
@@ -866,8 +1060,10 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
             val mocks = allMockTests.value
             val mockAvg = if (mocks.isNotEmpty()) mocks.map { it.percentage }.average() else 72.0
             val revCount = completedRevisions.value.size
+            val key = geminiApiKey.value
+            val model = geminiModel.value
 
-            val report = geminiService.generateWeaknessAnalysis(weak, strong, mockAvg, revCount)
+            val report = geminiService.generateWeaknessAnalysis(key, model, weak, strong, mockAvg, revCount)
             _isWeaknessLoading.value = false
             _weaknessReport.value = report.getOrNull()
         }
@@ -885,7 +1081,7 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
             mode = "Adaptive Remediation Test",
             difficulty = difficulty,
             questionTypes = listOf(QuestionType.MCQ, QuestionType.ASSERTION_REASON, QuestionType.SHORT_ANSWER, QuestionType.NUMERICAL),
-            questionCount = 5
+            questionCount = 10
         )
     }
 
@@ -910,11 +1106,15 @@ class RudraViewModel(application: Application) : AndroidViewModel(application) {
                 300
             }
 
+            val key = geminiApiKey.value
+            val model = geminiModel.value
             val plan = geminiService.generateAiDailyPlan(
+                apiKey = key,
+                model = model,
                 remainingDays = remainingDays,
                 weakChapters = weak,
                 dueRevisions = revisions,
-                completedCount = completed,
+                completedChapters = completed,
                 totalChapters = 46
             )
             _isDailyPlanLoading.value = false

@@ -54,6 +54,9 @@ class UserPreferences(private val context: Context) {
         val KEY_GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
         val KEY_GEMINI_MODEL = stringPreferencesKey("gemini_model")
         val KEY_GEMINI_API_STATUS = stringPreferencesKey("gemini_api_status")
+        val KEY_GEMINI_API_MONITOR_ENABLED = booleanPreferencesKey("gemini_api_monitor_enabled")
+        val KEY_GEMINI_LAST_CHECK_TIME = stringPreferencesKey("gemini_last_check_time")
+        val KEY_GEMINI_LAST_MESSAGE = stringPreferencesKey("gemini_last_message")
     }
 
     val geminiApiKey: Flow<String> = context.dataStore.data.map { preferences ->
@@ -66,6 +69,18 @@ class UserPreferences(private val context: Context) {
 
     val geminiApiStatus: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[KEY_GEMINI_API_STATUS] ?: "NOT_CONFIGURED"
+    }
+
+    val geminiApiMonitorEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_GEMINI_API_MONITOR_ENABLED] ?: true
+    }
+
+    val geminiLastCheckTime: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[KEY_GEMINI_LAST_CHECK_TIME] ?: "Never"
+    }
+
+    val geminiLastMessage: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[KEY_GEMINI_LAST_MESSAGE] ?: ""
     }
 
     val themeMode: Flow<String> = context.dataStore.data.map { preferences ->
@@ -224,5 +239,16 @@ class UserPreferences(private val context: Context) {
 
     suspend fun setGeminiApiStatus(status: String) {
         context.dataStore.edit { it[KEY_GEMINI_API_STATUS] = status }
+    }
+
+    suspend fun setGeminiApiMonitorEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_GEMINI_API_MONITOR_ENABLED] = enabled }
+    }
+
+    suspend fun setGeminiLastCheckInfo(timestampStr: String, message: String) {
+        context.dataStore.edit {
+            it[KEY_GEMINI_LAST_CHECK_TIME] = timestampStr
+            it[KEY_GEMINI_LAST_MESSAGE] = message
+        }
     }
 }

@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.graphics.Bitmap
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -26,8 +27,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -39,6 +42,7 @@ import com.example.ui.components.SectionHeader
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.RudraViewModel
 import com.example.ui.viewmodel.Screen
+import com.example.util.PdfExamExporter
 import kotlinx.coroutines.launch
 
 @Composable
@@ -55,6 +59,8 @@ fun AiStudyCoachScreen(
         Icons.Default.Radar,
         Icons.Default.AutoAwesome
     )
+
+    val apiWarning by viewModel.apiStatusWarning.collectAsState()
 
     Column(
         modifier = modifier
@@ -80,6 +86,56 @@ fun AiStudyCoachScreen(
             }
         }
 
+        // Persistent API Status Warning Strip
+        if (apiWarning != null && apiWarning?.isWarning == true) {
+            Surface(
+                color = when (apiWarning?.severity) {
+                    ApiWarningSeverity.ERROR -> ScoreRed.copy(alpha = 0.15f)
+                    ApiWarningSeverity.WARNING -> WarningOrange.copy(alpha = 0.15f)
+                    else -> MaterialTheme.colorScheme.surfaceVariant
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.navigateTo(Screen.Settings) }
+                    .testTag("ai_coach_api_warning_strip")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = when (apiWarning?.severity) {
+                            ApiWarningSeverity.ERROR -> Icons.Default.Error
+                            ApiWarningSeverity.WARNING -> Icons.Default.Warning
+                            else -> Icons.Default.Info
+                        },
+                        contentDescription = null,
+                        tint = when (apiWarning?.severity) {
+                            ApiWarningSeverity.ERROR -> ScoreRed
+                            ApiWarningSeverity.WARNING -> WarningOrange
+                            else -> AccentElectricBlue
+                        },
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "${apiWarning?.title}: ${apiWarning?.message}",
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "Settings →",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = AccentElectricBlue,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+
         Box(modifier = Modifier.fillMaxSize()) {
             when (selectedTab) {
                 0 -> AiTestGeneratorTab(viewModel = viewModel, onNavigateToWeakness = { selectedTab = 3 })
@@ -101,33 +157,40 @@ fun AiTestGeneratorTab(
     viewModel: RudraViewModel,
     onNavigateToWeakness: () -> Unit
 ) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val generatedTest by viewModel.generatedTest.collectAsState()
     val isTestGenerating by viewModel.isTestGenerating.collectAsState()
     val isTestSubmitting by viewModel.isTestSubmitting.collectAsState()
     val userAnswers by viewModel.testUserAnswers.collectAsState()
     val allChapters by viewModel.allChapters.collectAsState()
+    val geminiApiStatus by viewModel.geminiApiStatus.collectAsState()
 
     var selectedSubject by remember { mutableStateOf("Physics") }
-    var selectedMode by remember { mutableStateOf("Chapter-wise Test") }
-    var selectedDifficulty by remember { mutableStateOf("Board Level") }
+    var selectedScope by remember { mutableStateOf("Single Chapter") }
+    var selectedDifficulty by remember { mutableStateOf("Bihar Board Level") }
     var selectedChapter by remember { mutableStateOf("") }
-    var questionCount by remember { mutableIntStateOf(5) }
+    var selectedChaptersMulti by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var questionCount by remember { mutableIntStateOf(20) }
     var saveStatusMsg by remember { mutableStateOf<String?>(null) }
+    var outputFormatTab by remember { mutableIntStateOf(0) } // 0: Interactive, 1: PDF, 2: Text
 
     val subjectChapters = remember(selectedSubject, allChapters) {
-        val subName = if (selectedSubject == "Biology") "Biology" else if (selectedSubject == "Chemistry") "Chemistry" else "Physics"
-        allChapters.filter { ch ->
-            when (subName) {
-                "Physics" -> ch.subjectId == 1L
-                "Chemistry" -> ch.subjectId == 2L
-                else -> ch.subjectId == 3L
-            }
+        val subId = when (selectedSubject) {
+            "Physics" -> 1L
+            "Chemistry" -> 2L
+            "Biology" -> 3L
+            else -> 1L
         }
+        allChapters.filter { it.subjectId == subId }
     }
 
     LaunchedEffect(subjectChapters) {
         if (selectedChapter.isBlank() && subjectChapters.isNotEmpty()) {
             selectedChapter = subjectChapters.first().title
+        }
+        if (selectedChaptersMulti.isEmpty() && subjectChapters.size >= 2) {
+            selectedChaptersMulti = setOf(subjectChapters[0].title, subjectChapters[1].title)
         }
     }
 
@@ -142,21 +205,40 @@ fun AiTestGeneratorTab(
         ) {
             item {
                 GlassCard(
-                    backgroundColor = AccentNavy.copy(alpha = 0.35f),
+                    backgroundColor = AccentNavy.copy(alpha = 0.45f),
                     borderColor = AccentElectricBlue.copy(alpha = 0.5f)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.PostAdd, contentDescription = null, tint = AccentElectricBlue)
-                            Text(
-                                "AI Question Paper Setter",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Default.Psychology, contentDescription = null, tint = AccentElectricBlue)
+                                Text(
+                                    "AI Examination Engine",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (geminiApiStatus == "CONNECTED") ScoreGreen.copy(alpha = 0.2f) else ScoreYellow.copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    text = if (geminiApiStatus == "CONNECTED") "GEMINI 2.5 ACTIVE" else "STANDARD TEMPLATES",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (geminiApiStatus == "CONNECTED") ScoreGreen else ScoreYellow,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp
+                                )
+                            }
                         }
                         Text(
-                            "Generates custom board exam question papers with MCQs, Assertion-Reason, Short/Long Derivations, and Numericals.",
+                            "Generates balanced Board Examination papers with MCQs, Assertion-Reason, Short & Long Answers, Derivations, Numericals, Diagrams, and Case Studies.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -167,50 +249,52 @@ fun AiTestGeneratorTab(
             // 1. Select Subject
             item {
                 Text("1. Select Subject", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    listOf("Physics", "Chemistry", "Biology", "Full PCB").forEach { sub ->
+                    listOf("Physics", "Chemistry", "Biology").forEach { sub ->
                         FilterChip(
                             selected = selectedSubject == sub,
                             onClick = {
                                 selectedSubject = sub
-                                val subName = if (sub == "Biology") "Biology" else if (sub == "Chemistry") "Chemistry" else "Physics"
-                                val chs = allChapters.filter {
-                                    if (subName == "Physics") it.subjectId == 1L else if (subName == "Chemistry") it.subjectId == 2L else it.subjectId == 3L
-                                }
+                                val subId = if (sub == "Physics") 1L else if (sub == "Chemistry") 2L else 3L
+                                val chs = allChapters.filter { it.subjectId == subId }
                                 selectedChapter = chs.firstOrNull()?.title ?: ""
+                                selectedChaptersMulti = chs.take(2).map { it.title }.toSet()
                             },
-                            label = { Text(sub, fontSize = 12.sp) },
+                            label = { Text(sub, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
                             modifier = Modifier.weight(1f)
                         )
                     }
                 }
             }
 
-            // 2. Select Test Mode
+            // 2. Select Scope
             item {
-                Text("2. Test Mode", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text("2. Exam Scope", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    listOf("Chapter-wise Test", "Multiple Chapter Test", "Full Subject Test", "Full PCB Mock Test").forEach { mode ->
+                    listOf("Single Chapter", "Multiple Chapters", "Full Subject", "Full PCB Mock Test").forEach { sc ->
                         FilterChip(
-                            selected = selectedMode == mode,
-                            onClick = { selectedMode = mode },
-                            label = { Text(mode, fontSize = 11.sp) }
+                            selected = selectedScope == sc,
+                            onClick = { selectedScope = sc },
+                            label = { Text(sc, fontSize = 11.sp) }
                         )
                     }
                 }
             }
 
-            // 3. Select Chapter (if Chapter-wise)
-            if (selectedMode == "Chapter-wise Test" && subjectChapters.isNotEmpty()) {
+            // 3. Select Target Chapter(s) based on Scope
+            if (selectedScope == "Single Chapter" && subjectChapters.isNotEmpty()) {
                 item {
                     Text("3. Target Chapter", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(4.dp))
                     var expanded by remember { mutableStateOf(false) }
                     Box(modifier = Modifier.fillMaxWidth()) {
                         OutlinedButton(
@@ -245,33 +329,72 @@ fun AiTestGeneratorTab(
                         }
                     }
                 }
+            } else if (selectedScope == "Multiple Chapters" && subjectChapters.isNotEmpty()) {
+                item {
+                    Text("3. Choose Multiple Chapters", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        subjectChapters.forEach { ch ->
+                            val isSelected = selectedChaptersMulti.contains(ch.title)
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSelected) AccentElectricBlue.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                border = BorderStroke(1.dp, if (isSelected) AccentElectricBlue else Color.Transparent),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        val mutable = selectedChaptersMulti.toMutableSet()
+                                        if (isSelected) mutable.remove(ch.title) else mutable.add(ch.title)
+                                        selectedChaptersMulti = mutable
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = { checked ->
+                                            val mutable = selectedChaptersMulti.toMutableSet()
+                                            if (checked) mutable.add(ch.title) else mutable.remove(ch.title)
+                                            selectedChaptersMulti = mutable
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("${ch.chapterNumber}. ${ch.title}", fontSize = 12.sp, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // 4. Difficulty Level
             item {
-                Text("4. Difficulty Level", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Row(
+                Text("4. Board & Difficulty Level", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    listOf("Easy", "Medium", "Hard", "Board Level").forEach { diff ->
-                        val color = when (diff) {
-                            "Easy" -> ScoreGreen
-                            "Medium" -> ScoreYellow
-                            "Hard" -> ScoreRed
-                            else -> AccentElectricBlue
-                        }
+                    val difficulties = listOf(
+                        "Bihar Board Level" to ScoreGreen,
+                        "Bihar Board Advanced" to AccentElectricBlue,
+                        "CBSE Level" to ScoreYellow,
+                        "CBSE Advanced" to ScoreRed
+                    )
+                    difficulties.forEach { (diff, _) ->
                         FilterChip(
                             selected = selectedDifficulty == diff,
                             onClick = { selectedDifficulty = diff },
-                            label = { Text(diff, fontSize = 11.sp) },
-                            modifier = Modifier.weight(1f)
+                            label = { Text(diff, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
                         )
                     }
                 }
             }
 
-            // 5. Question Count
+            // 5. Number of Questions (10 to 70)
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -279,43 +402,62 @@ fun AiTestGeneratorTab(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("5. Number of Questions", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    Text("$questionCount Questions", fontWeight = FontWeight.Bold, color = AccentElectricBlue)
+                    Text("$questionCount Questions (${questionCount * 3} Mins)", fontWeight = FontWeight.Bold, color = AccentElectricBlue, fontSize = 13.sp)
                 }
-                Slider(
-                    value = questionCount.toFloat(),
-                    onValueChange = { questionCount = it.toInt() },
-                    valueRange = 3f..10f,
-                    steps = 6,
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    listOf(10, 20, 30, 40, 50, 60, 70).forEach { count ->
+                        FilterChip(
+                            selected = questionCount == count,
+                            onClick = { questionCount = count },
+                            label = { Text("$count", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            // Mixed Question Pattern Indicator
+            item {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)),
                     modifier = Modifier.fillMaxWidth()
-                )
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(16.dp))
+                            Text("Mixed Question Paper Blueprint", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = AccentCyan)
+                        }
+                        Text(
+                            "Includes: MCQs • Assertion-Reason • Very Short (1M) • Short Answers (2M) • Long Derivations (5M) • Numericals • Diagrams • Case-Based Studies.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
             }
 
             // Generate Button
             item {
                 Button(
                     onClick = {
-                        val chaptersToInclude = if (selectedMode == "Chapter-wise Test" && selectedChapter.isNotBlank()) {
-                            listOf(selectedChapter)
-                        } else if (selectedMode == "Multiple Chapter Test") {
-                            subjectChapters.take(3).map { it.title }
-                        } else {
-                            emptyList()
+                        val chaptersToInclude = when (selectedScope) {
+                            "Single Chapter" -> if (selectedChapter.isNotBlank()) listOf(selectedChapter) else subjectChapters.take(1).map { it.title }
+                            "Multiple Chapters" -> if (selectedChaptersMulti.isNotEmpty()) selectedChaptersMulti.toList() else subjectChapters.take(3).map { it.title }
+                            else -> emptyList()
                         }
-
-                        val qTypes = listOf(
-                            QuestionType.MCQ,
-                            QuestionType.ASSERTION_REASON,
-                            QuestionType.SHORT_ANSWER,
-                            QuestionType.NUMERICAL,
-                            QuestionType.LONG_ANSWER
-                        )
 
                         viewModel.generateTestPaper(
                             subject = selectedSubject,
                             chapters = chaptersToInclude,
-                            mode = selectedMode,
+                            mode = selectedScope,
                             difficulty = selectedDifficulty,
-                            questionTypes = qTypes,
                             questionCount = questionCount
                         )
                     },
@@ -327,22 +469,25 @@ fun AiTestGeneratorTab(
                     enabled = !isTestGenerating
                 ) {
                     if (isTestGenerating) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                        CircularProgressIndicator(color = DarkNavyBg, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Drafting Board Level Questions...")
+                        Text("Drafting Board Exam Paper ($selectedDifficulty)...", color = DarkNavyBg, fontWeight = FontWeight.Bold)
                     } else {
-                        Icon(Icons.Default.Bolt, contentDescription = null)
+                        Icon(Icons.Default.Bolt, contentDescription = null, tint = DarkNavyBg)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("⚡ Generate AI Test Paper", fontWeight = FontWeight.Bold)
+                        Text("⚡ Generate $questionCount-Question AI Paper", fontWeight = FontWeight.Bold, color = DarkNavyBg)
                     }
                 }
             }
         }
     } else {
-        // Active or Evaluated Test View
+        // Active or Evaluated Test View with 3 Output Formats
         val test = generatedTest!!
         var currentQuestionIndex by remember { mutableIntStateOf(0) }
         val currentQ = test.questions.getOrNull(currentQuestionIndex) ?: test.questions.first()
+        val paperText = remember(test) { PdfExamExporter.generateQuestionPaperText(test) }
+        val answerText = remember(test) { PdfExamExporter.generateAnswerKeyText(test) }
+        var showAnswersInText by remember { mutableStateOf(false) }
 
         LazyColumn(
             modifier = Modifier
@@ -370,7 +515,7 @@ fun AiTestGeneratorTab(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    "Total Marks: ${test.totalMarks.toInt()} • Time: ${test.timeLimitMinutes} mins • ${test.difficulty}",
+                                    "Total Marks: ${test.totalMarks.toInt()} • Questions: ${test.questions.size} • Time: ${test.timeLimitMinutes} mins • ${test.difficulty}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -380,7 +525,7 @@ fun AiTestGeneratorTab(
                                 onClick = { viewModel.clearActiveTest() },
                                 colors = ButtonDefaults.textButtonColors(contentColor = ScoreRed)
                             ) {
-                                Text("Exit", fontSize = 12.sp)
+                                Text("New Test", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         }
 
@@ -398,7 +543,7 @@ fun AiTestGeneratorTab(
                                     Column {
                                         Text("Score Awarded", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         Text(
-                                            "${"%.1f".format(test.totalObtainedMarks)} / ${"%.1f".format(test.totalMarks)} (${"%.0f".format((test.totalObtainedMarks / test.totalMarks) * 100)}%)",
+                                            "${"%.1f".format(test.totalObtainedMarks)} / ${"%.1f".format(test.totalMarks)} (${"%.0f".format(if (test.totalMarks > 0) (test.totalObtainedMarks / test.totalMarks) * 100 else 0.0)}%)",
                                             style = MaterialTheme.typography.titleLarge,
                                             fontWeight = FontWeight.Bold,
                                             color = if (test.totalObtainedMarks / test.totalMarks >= 0.75) ScoreGreen else if (test.totalObtainedMarks / test.totalMarks >= 0.5) ScoreYellow else ScoreRed
@@ -408,7 +553,8 @@ fun AiTestGeneratorTab(
                                     Button(
                                         onClick = {
                                             viewModel.saveTestResultToMockHistory()
-                                            saveStatusMsg = "Score logged to Mock Tests!"
+                                            saveStatusMsg = "Score Logged!"
+                                            Toast.makeText(context, "Saved to Mock Test History!", Toast.LENGTH_SHORT).show()
                                         },
                                         shape = RoundedCornerShape(8.dp)
                                     ) {
@@ -423,196 +569,368 @@ fun AiTestGeneratorTab(
                 }
             }
 
-            // Question Navigator Chips
-            item {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(test.questions) { q ->
-                        val isSelected = test.questions.indexOf(q) == currentQuestionIndex
-                        val hasAnswered = userAnswers[q.id]?.isNotBlank() == true || q.userAnswer.isNotBlank()
-                        Surface(
-                            shape = CircleShape,
-                            color = if (isSelected) AccentElectricBlue else if (hasAnswered) ScoreGreen.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(1.dp, if (isSelected) AccentElectricBlue else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clickable { currentQuestionIndex = test.questions.indexOf(q) }
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    "${test.questions.indexOf(q) + 1}",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
-                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Question Detail Card
-            item {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = AccentCyan.copy(alpha = 0.15f)
-                            ) {
-                                Text(
-                                    "Q${currentQuestionIndex + 1} • ${currentQ.type.displayName}",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = AccentCyan,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                            Text("${currentQ.marks.toInt()} Mark(s)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ScoreYellow)
-                        }
-
-                        Text(
-                            currentQ.questionText,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            lineHeight = 22.sp
-                        )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-
-                        if (!test.isSubmitted) {
-                            // User Answer Input Area
-                            if (currentQ.options.isNotEmpty()) {
-                                // MCQ or Assertion-Reason Radio Options
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    currentQ.options.forEach { opt ->
-                                        val optLetter = opt.take(2).trim()
-                                        val isChosen = userAnswers[currentQ.id]?.contains(optLetter) == true
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = if (isChosen) AccentElectricBlue.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                            border = BorderStroke(1.dp, if (isChosen) AccentElectricBlue else Color.Transparent),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable { viewModel.updateTestAnswer(currentQ.id, opt) }
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(10.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                RadioButton(
-                                                    selected = isChosen,
-                                                    onClick = { viewModel.updateTestAnswer(currentQ.id, opt) }
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(opt, style = MaterialTheme.typography.bodyMedium)
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                // Written Response Field
-                                OutlinedTextField(
-                                    value = userAnswers[currentQ.id] ?: "",
-                                    onValueChange = { viewModel.updateTestAnswer(currentQ.id, it) },
-                                    label = { Text("Write your step-by-step solution / definition / derivation") },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(min = 120.dp),
-                                    maxLines = 8
-                                )
-                            }
-                        } else {
-                            // Evaluated View
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (currentQ.obtainedMarks >= currentQ.marks) ScoreGreen.copy(alpha = 0.15f) else ScoreRed.copy(alpha = 0.15f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(10.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("Score: ${currentQ.obtainedMarks} / ${currentQ.marks}", fontWeight = FontWeight.Bold)
-                                        Text(if (currentQ.obtainedMarks >= currentQ.marks) "CORRECT" else "NEEDS REVISION", fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                                    }
-                                }
-
-                                Text("Your Answer:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                Text(currentQ.userAnswer.ifBlank { "[Not Attempted]" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-                                Text("Model Board Answer:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = ScoreGreen)
-                                Text(currentQ.correctAnswer, style = MaterialTheme.typography.bodySmall)
-
-                                if (currentQ.explanation.isNotBlank()) {
-                                    Text("Explanation & Marking Scheme:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = AccentCyan)
-                                    Text("${currentQ.explanation}\n${currentQ.markingScheme}", style = MaterialTheme.typography.bodySmall)
-                                }
-
-                                if (currentQ.aiEvaluation.isNotBlank()) {
-                                    Text("AI Examiner Feedback:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = ScoreYellow)
-                                    Text(currentQ.aiEvaluation, style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Bottom Navigation & Submit Bar
+            // Output Format Switcher (Format 1: Interactive, Format 2: PDF, Format 3: Text)
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    if (currentQuestionIndex > 0) {
-                        OutlinedButton(
-                            onClick = { currentQuestionIndex -= 1 },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
+                    val formats = listOf("📱 Interactive", "📄 PDF Paper", "📝 Text Version")
+                    formats.forEachIndexed { idx, label ->
+                        FilterChip(
+                            selected = outputFormatTab == idx,
+                            onClick = { outputFormatTab = idx },
+                            label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            // Render Output Format based on selection
+            when (outputFormatTab) {
+                0 -> {
+                    // FORMAT 1: INTERACTIVE TEST
+                    // Question Navigator Chips
+                    item {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Previous")
+                            items(test.questions) { q ->
+                                val isSelected = test.questions.indexOf(q) == currentQuestionIndex
+                                val hasAnswered = userAnswers[q.id]?.isNotBlank() == true || q.userAnswer.isNotBlank()
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isSelected) AccentElectricBlue else if (hasAnswered) ScoreGreen.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface,
+                                    border = BorderStroke(1.dp, if (isSelected) AccentElectricBlue else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clickable { currentQuestionIndex = test.questions.indexOf(q) }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            "${test.questions.indexOf(q) + 1}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            color = if (isSelected) DarkNavyBg else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 
-                    if (currentQuestionIndex < test.questions.size - 1) {
-                        Button(
-                            onClick = { currentQuestionIndex += 1 },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
+                    // Question Detail Card
+                    item {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Next Question")
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = AccentCyan.copy(alpha = 0.15f)
+                                    ) {
+                                        Text(
+                                            "Q${currentQuestionIndex + 1} • ${currentQ.type.displayName}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = AccentCyan,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                    Text("${currentQ.marks.toInt()} Mark(s)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ScoreYellow)
+                                }
+
+                                Text(
+                                    currentQ.questionText,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    lineHeight = 22.sp
+                                )
+
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
+                                if (!test.isSubmitted) {
+                                    // User Answer Input Area
+                                    if (currentQ.options.isNotEmpty()) {
+                                        // MCQ or Assertion-Reason Radio Options
+                                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            currentQ.options.forEach { opt ->
+                                                val optLetter = opt.take(2).trim()
+                                                val isChosen = userAnswers[currentQ.id]?.contains(optLetter) == true
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = if (isChosen) AccentElectricBlue.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                                    border = BorderStroke(1.dp, if (isChosen) AccentElectricBlue else Color.Transparent),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable { viewModel.updateTestAnswer(currentQ.id, opt) }
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(10.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        RadioButton(
+                                                            selected = isChosen,
+                                                            onClick = { viewModel.updateTestAnswer(currentQ.id, opt) }
+                                                        )
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(opt, style = MaterialTheme.typography.bodyMedium)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        // Written Response Field
+                                        OutlinedTextField(
+                                            value = userAnswers[currentQ.id] ?: "",
+                                            onValueChange = { viewModel.updateTestAnswer(currentQ.id, it) },
+                                            label = { Text("Write your answer / derivation / numerical calculation") },
+                                            placeholder = { Text("Enter your solution steps here...") },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(min = 120.dp),
+                                            maxLines = 8
+                                        )
+                                    }
+                                } else {
+                                    // Evaluated View
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (currentQ.obtainedMarks >= currentQ.marks) ScoreGreen.copy(alpha = 0.15f) else ScoreRed.copy(alpha = 0.15f),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(10.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text("Score Awarded: ${String.format("%.1f", currentQ.obtainedMarks)} / ${currentQ.marks.toInt()}", fontWeight = FontWeight.Bold)
+                                                Text(if (currentQ.obtainedMarks >= currentQ.marks) "FULL MARKS" else "NEEDS REVISION", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                            }
+                                        }
+
+                                        Text("Your Answer:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Text(currentQ.userAnswer.ifBlank { "[Not Attempted]" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                                        Text("Model Board Answer:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = ScoreGreen)
+                                        Text(currentQ.correctAnswer, style = MaterialTheme.typography.bodySmall)
+
+                                        if (currentQ.stepByStepSolution.isNotBlank()) {
+                                            Text("Step-by-Step Solution:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = AccentCyan)
+                                            Text(currentQ.stepByStepSolution, style = MaterialTheme.typography.bodySmall)
+                                        }
+
+                                        if (currentQ.markingScheme.isNotBlank()) {
+                                            Text("Marking Scheme Breakdown:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = ScoreYellow)
+                                            Text(currentQ.markingScheme, style = MaterialTheme.typography.bodySmall)
+                                        }
+
+                                        if (currentQ.aiEvaluation.isNotBlank()) {
+                                            Text("AI Examiner Evaluation:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = AccentElectricBlue)
+                                            Text(currentQ.aiEvaluation, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                }
+                            }
                         }
-                    } else if (!test.isSubmitted) {
-                        Button(
-                            onClick = { viewModel.submitTestPaper() },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = ScoreGreen),
-                            enabled = !isTestSubmitting
+                    }
+
+                    // Bottom Navigation & Submit Bar
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            if (isTestSubmitting) {
-                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp))
-                            } else {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Submit & Evaluate")
+                            if (currentQuestionIndex > 0) {
+                                OutlinedButton(
+                                    onClick = { currentQuestionIndex -= 1 },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Text("Previous")
+                                }
+                            }
+
+                            if (currentQuestionIndex < test.questions.size - 1) {
+                                Button(
+                                    onClick = { currentQuestionIndex += 1 },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Text("Next Question")
+                                }
+                            } else if (!test.isSubmitted) {
+                                Button(
+                                    onClick = { viewModel.submitTestPaper() },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = ScoreGreen),
+                                    enabled = !isTestSubmitting
+                                ) {
+                                    if (isTestSubmitting) {
+                                        CircularProgressIndicator(color = DarkNavyBg, modifier = Modifier.size(18.dp))
+                                    } else {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = DarkNavyBg)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Submit & Evaluate", color = DarkNavyBg, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                1 -> {
+                    // FORMAT 2: PDF QUESTION PAPER & ANSWER KEY
+                    item {
+                        GlassCard {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = ScoreRed, modifier = Modifier.size(24.dp))
+                                    Column {
+                                        Text("Downloadable PDF Question Paper", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                        Text("Formatted for print with Board header, marks, time limit, and instructions.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
+                                // Paper Metadata Summary
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("• Test Name: ${test.title}", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                        Text("• Subject: ${test.subject} | Scope: ${test.mode}", fontSize = 12.sp)
+                                        Text("• Difficulty: ${test.difficulty}", fontSize = 12.sp)
+                                        Text("• Total Questions: ${test.questions.size} | Max Marks: ${test.totalMarks.toInt()}", fontSize = 12.sp)
+                                        Text("• Time Limit: ${test.timeLimitMinutes} Minutes", fontSize = 12.sp)
+                                    }
+                                }
+
+                                Button(
+                                    onClick = {
+                                        try {
+                                            val pdfFile = PdfExamExporter.generateQuestionPaperPdf(context, test)
+                                            PdfExamExporter.sharePdf(context, pdfFile, "${test.title} - Question Paper")
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "PDF export error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = AccentElectricBlue),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Download, contentDescription = null, tint = DarkNavyBg)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Download / Share Question Paper PDF", color = DarkNavyBg, fontWeight = FontWeight.Bold)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        try {
+                                            val pdfFile = PdfExamExporter.generateAnswerKeyPdf(context, test)
+                                            PdfExamExporter.sharePdf(context, pdfFile, "${test.title} - Model Answer Key")
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "PDF export error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.MenuBook, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Download Model Answer Key PDF")
+                                }
+                            }
+                        }
+                    }
+                }
+                2 -> {
+                    // FORMAT 3: TEXT VERSION
+                    item {
+                        GlassCard {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Icon(Icons.Default.Notes, contentDescription = null, tint = AccentCyan)
+                                        Text("Complete Question Paper Text", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        IconButton(onClick = {
+                                            val textToCopy = if (showAnswersInText) answerText else paperText
+                                            clipboardManager.setText(AnnotatedString(textToCopy))
+                                            Toast.makeText(context, "Question Paper copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                        }) {
+                                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy Text", modifier = Modifier.size(18.dp))
+                                        }
+
+                                        IconButton(onClick = {
+                                            val textToShare = if (showAnswersInText) answerText else paperText
+                                            val sendIntent = android.content.Intent().apply {
+                                                action = android.content.Intent.ACTION_SEND
+                                                putExtra(android.content.Intent.EXTRA_TEXT, textToShare)
+                                                type = "text/plain"
+                                            }
+                                            context.startActivity(android.content.Intent.createChooser(sendIntent, "Share Question Paper Text"))
+                                        }) {
+                                            Icon(Icons.Default.Share, contentDescription = "Share Text", modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = !showAnswersInText,
+                                        onClick = { showAnswersInText = false },
+                                        label = { Text("Questions Only", fontSize = 11.sp) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    FilterChip(
+                                        selected = showAnswersInText,
+                                        onClick = { showAnswersInText = true },
+                                        label = { Text("Questions + Answer Key", fontSize = 11.sp) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = if (showAnswersInText) answerText else paperText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        modifier = Modifier.padding(12.dp),
+                                        fontSize = 11.sp,
+                                        lineHeight = 16.sp
+                                    )
+                                }
                             }
                         }
                     }

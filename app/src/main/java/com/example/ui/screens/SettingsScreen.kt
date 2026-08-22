@@ -11,13 +11,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.model.ApiWarningSeverity
 import com.example.notification.permission.NotificationPermissionManager
 import com.example.notification.permission.NotificationPermissionRationaleCard
 import com.example.ui.components.GlassCard
@@ -26,6 +30,21 @@ import com.example.ui.theme.*
 import com.example.ui.viewmodel.RudraViewModel
 import kotlinx.coroutines.launch
 
+private data class GeminiStatusBadge(
+    val text: String,
+    val bg: Color,
+    val fg: Color,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
+
+private data class ApiBannerStyle(
+    val bg: Color,
+    val border: Color,
+    val iconColor: Color,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: RudraViewModel,
@@ -57,6 +76,21 @@ fun SettingsScreen(
     val block3Time by viewModel.block3Time.collectAsState()
     val block5Time by viewModel.block5Time.collectAsState()
     val shutdownTime by viewModel.shutdownTime.collectAsState()
+
+    // AI Configuration & Persistent Status Monitor State
+    val geminiApiKey by viewModel.geminiApiKey.collectAsState()
+    val geminiModel by viewModel.geminiModel.collectAsState()
+    val geminiApiStatus by viewModel.geminiApiStatus.collectAsState()
+    val geminiApiMonitorEnabled by viewModel.geminiApiMonitorEnabled.collectAsState()
+    val geminiLastCheckTime by viewModel.geminiLastCheckTime.collectAsState()
+    val geminiLastMessage by viewModel.geminiLastMessage.collectAsState()
+    val apiStatusWarning by viewModel.apiStatusWarning.collectAsState()
+    val apiTestMessage by viewModel.apiTestMessage.collectAsState()
+    val isTestingApi by viewModel.isTestingApi.collectAsState()
+
+    var apiKeyInput by remember(geminiApiKey) { mutableStateOf(geminiApiKey) }
+    var isApiKeyVisible by remember { mutableStateOf(false) }
+    var isModelDropdownExpanded by remember { mutableStateOf(false) }
 
     var showEditTimesDialog by remember { mutableStateOf(false) }
     var showEditQuietHoursDialog by remember { mutableStateOf(false) }
@@ -382,6 +416,420 @@ fun SettingsScreen(
                 }
             }
         }
+        // Persistent API Status Monitor & Gemini AI Engine Configuration Card
+        item {
+            GlassCard {
+                Column(modifier = Modifier.fillMaxWidth().testTag("api_status_monitor_card")) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.SmartToy,
+                                contentDescription = null,
+                                tint = AccentElectricBlue,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "PERSISTENT API STATUS MONITOR",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = AccentElectricBlue,
+                                letterSpacing = 1.sp
+                            )
+                        }
+
+                        val badge = when (geminiApiStatus) {
+                            "CONNECTED" -> GeminiStatusBadge("CONNECTED", ScoreGreen.copy(alpha = 0.2f), ScoreGreen, Icons.Default.CheckCircle)
+                            "INVALID_KEY" -> GeminiStatusBadge("INVALID KEY", ScoreRed.copy(alpha = 0.2f), ScoreRed, Icons.Default.Error)
+                            "QUOTA_EXCEEDED" -> GeminiStatusBadge("QUOTA EXCEEDED", WarningOrange.copy(alpha = 0.2f), WarningOrange, Icons.Default.Warning)
+                            "NETWORK_ERROR" -> GeminiStatusBadge("OFFLINE", WarningOrange.copy(alpha = 0.2f), WarningOrange, Icons.Default.WifiOff)
+                            else -> GeminiStatusBadge("KEY MISSING", MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f), MaterialTheme.colorScheme.onSurfaceVariant, Icons.Default.HelpOutline)
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = badge.bg,
+                            modifier = Modifier.testTag("gemini_status_indicator")
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = badge.icon,
+                                    contentDescription = null,
+                                    tint = badge.fg,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = badge.text,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = badge.fg,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Continuous health monitoring for Gemini AI services (Board Mock Tests, Step-by-Step Scoring, Oral Viva & Doubt Solver).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Persistent Warning & Status Alert Banner
+                    val activeWarning = apiStatusWarning
+                    if (activeWarning != null) {
+                        val bannerStyle = when (activeWarning.severity) {
+                            ApiWarningSeverity.ERROR -> ApiBannerStyle(ScoreRed.copy(alpha = 0.12f), ScoreRed.copy(alpha = 0.4f), ScoreRed, Icons.Default.Error)
+                            ApiWarningSeverity.WARNING -> ApiBannerStyle(WarningOrange.copy(alpha = 0.12f), WarningOrange.copy(alpha = 0.4f), WarningOrange, Icons.Default.Warning)
+                            ApiWarningSeverity.INFO -> ApiBannerStyle(AccentElectricBlue.copy(alpha = 0.10f), AccentElectricBlue.copy(alpha = 0.35f), AccentElectricBlue, Icons.Default.Info)
+                            ApiWarningSeverity.SUCCESS -> ApiBannerStyle(ScoreGreen.copy(alpha = 0.12f), ScoreGreen.copy(alpha = 0.35f), ScoreGreen, Icons.Default.CheckCircle)
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = bannerStyle.bg,
+                            border = BorderStroke(1.dp, bannerStyle.border),
+                            modifier = Modifier.fillMaxWidth().testTag("api_status_warning_banner")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = bannerStyle.icon,
+                                    contentDescription = null,
+                                    tint = bannerStyle.iconColor,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = activeWarning.title,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = bannerStyle.iconColor
+                                    )
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Text(
+                                        text = activeWarning.message,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 12.sp,
+                                        lineHeight = 16.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
+                    // Background Health Monitor Switch & Last Checked Info
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Periodic Connection Monitor",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Automatically verifies API health every 5 minutes",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                                Switch(
+                                    checked = geminiApiMonitorEnabled,
+                                    onCheckedChange = { viewModel.setGeminiApiMonitorEnabled(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = AccentElectricBlue
+                                    ),
+                                    modifier = Modifier.testTag("api_monitor_switch")
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), thickness = 0.8.dp)
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.AccessTime,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "Last checked: $geminiLastCheckTime",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 11.sp
+                                    )
+                                }
+
+                                if (geminiModel.isNotBlank()) {
+                                    Text(
+                                        text = "Model: ${geminiModel.replace("gemini-", "")}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = AccentElectricBlue,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // API Key Text Input Field
+                    OutlinedTextField(
+                        value = apiKeyInput,
+                        onValueChange = {
+                            apiKeyInput = it
+                            viewModel.setGeminiApiKey(it.trim())
+                        },
+                        label = { Text("Gemini API Key") },
+                        placeholder = { Text("AIzaSy...") },
+                        leadingIcon = {
+                            Icon(Icons.Default.VpnKey, contentDescription = null, tint = AccentElectricBlue, modifier = Modifier.size(18.dp))
+                        },
+                        trailingIcon = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { isApiKeyVisible = !isApiKeyVisible }) {
+                                    Icon(
+                                        if (isApiKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = "Toggle API Key Visibility",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                IconButton(onClick = {
+                                    val clip = clipboardManager.getText()?.text
+                                    if (!clip.isNullOrBlank()) {
+                                        apiKeyInput = clip.trim()
+                                        viewModel.setGeminiApiKey(clip.trim())
+                                        Toast.makeText(context, "API Key pasted & checking connection...", Toast.LENGTH_SHORT).show()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.ContentPaste, contentDescription = "Paste API Key", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        },
+                        visualTransformation = if (isApiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("gemini_api_key_input")
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Model Selection Dropdown (Flash / Pro)
+                    Text(
+                        text = "AI Model Selection (Flash / Pro)",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val modelOptions = listOf(
+                        Triple("gemini-2.5-flash", "Gemini 2.5 Flash", "⚡ Fast & smart (Recommended for Board practice & Quizzes)"),
+                        Triple("gemini-2.5-pro", "Gemini 2.5 Pro", "🧠 Deep reasoning (Advanced derivations, NCERT proofs & Viva)"),
+                        Triple("gemini-3.5-flash", "Gemini 3.5 Flash", "🚀 Next-gen high speed generation"),
+                        Triple("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview", "🔬 State-of-the-art complex STEM reasoning")
+                    )
+
+                    val selectedModelInfo = modelOptions.firstOrNull { it.first == geminiModel }
+                        ?: modelOptions.first()
+
+                    ExposedDropdownMenuBox(
+                        expanded = isModelDropdownExpanded,
+                        onExpandedChange = { isModelDropdownExpanded = !isModelDropdownExpanded },
+                        modifier = Modifier.fillMaxWidth().testTag("gemini_model_dropdown_box")
+                    ) {
+                        OutlinedTextField(
+                            value = selectedModelInfo.second,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Active Model") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isModelDropdownExpanded) },
+                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth()
+                                .testTag("gemini_model_dropdown")
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = isModelDropdownExpanded,
+                            onDismissRequest = { isModelDropdownExpanded = false }
+                        ) {
+                            modelOptions.forEach { (modelId, name, desc) ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = name,
+                                                    fontWeight = if (geminiModel == modelId) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (geminiModel == modelId) AccentElectricBlue else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                if (geminiModel == modelId) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = null,
+                                                        tint = AccentElectricBlue,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = desc,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.setGeminiModel(modelId)
+                                        isModelDropdownExpanded = false
+                                    },
+                                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Validation Button & Actions
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = { viewModel.testGeminiApiConnection() },
+                            enabled = !isTestingApi,
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentElectricBlue),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("test_ai_connection_button")
+                        ) {
+                            if (isTestingApi) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = DarkNavyBg, strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Validating...", color = DarkNavyBg, fontWeight = FontWeight.Bold)
+                            } else {
+                                Icon(Icons.Default.Verified, contentDescription = null, modifier = Modifier.size(16.dp), tint = DarkNavyBg)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Validate Key & Check Health", color = DarkNavyBg, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        if (apiKeyInput.isNotBlank()) {
+                            OutlinedButton(
+                                onClick = {
+                                    apiKeyInput = ""
+                                    viewModel.setGeminiApiKey("")
+                                    Toast.makeText(context, "API Key cleared", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Text("Clear")
+                            }
+                        }
+                    }
+
+                    // Validation Results Status Banner
+                    if (apiTestMessage != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        val isSuccess = geminiApiStatus == "CONNECTED"
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSuccess) ScoreGreen.copy(alpha = 0.12f) else ScoreRed.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, if (isSuccess) ScoreGreen.copy(alpha = 0.35f) else ScoreRed.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth().testTag("gemini_validation_result_card")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    if (isSuccess) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = if (isSuccess) ScoreGreen else ScoreRed,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = if (isSuccess) "Key Validated & Active" else "Validation Notice",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSuccess) ScoreGreen else ScoreRed
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = apiTestMessage ?: "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (isSuccess) ScoreGreen else ScoreRed,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "💡 Tip: Get your free Gemini API key from Google AI Studio (aistudio.google.com). Even offline, Rudra includes built-in NCERT question templates!",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+
         // App Theme Selector
         item {
             GlassCard {

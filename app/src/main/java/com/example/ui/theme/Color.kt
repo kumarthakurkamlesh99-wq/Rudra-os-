@@ -42,4 +42,5 @@ val ChemistryColor = Color(0xFFA855F7)
 val BiologyColor = Color(0xFF10B981)
 val HindiColor = Color(0xFFF97316)
 val EnglishColor = Color(0xFFEC4899)
+val WarningOrange = Color(0xFFF97316)
 

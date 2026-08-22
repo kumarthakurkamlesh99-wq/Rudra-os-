@@ -20,6 +20,15 @@ interface SubjectDao {
     @Query("SELECT * FROM subjects WHERE id = :id")
     suspend fun getSubjectById(id: Long): SubjectEntity?
 
+    @Query("SELECT COUNT(*) FROM subjects WHERE id = :id")
+    suspend fun countSubjectById(id: Long): Int
+
+    @Query("SELECT * FROM subjects WHERE code = :code LIMIT 1")
+    suspend fun getSubjectByCodeSync(code: String): SubjectEntity?
+
+    @Query("SELECT id FROM subjects ORDER BY orderIndex ASC, id ASC LIMIT 1")
+    suspend fun getFirstSubjectIdSync(): Long?
+
     @Transaction
     @Query("SELECT * FROM subjects ORDER BY orderIndex ASC")
     fun getAllSubjectsWithChapters(): Flow<List<SubjectWithChapters>>

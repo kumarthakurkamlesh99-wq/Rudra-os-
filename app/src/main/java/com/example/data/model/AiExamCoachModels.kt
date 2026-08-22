@@ -115,3 +115,19 @@ data class AiBoardPrediction(
     val warnings: List<String>,
     val recommendations: List<String>
 )
+
+enum class ApiWarningSeverity {
+    INFO,
+    WARNING,
+    ERROR,
+    SUCCESS
+}
+
+data class ApiWarningInfo(
+    val status: String,
+    val title: String,
+    val message: String,
+    val isWarning: Boolean,
+    val severity: ApiWarningSeverity = ApiWarningSeverity.INFO,
+    val actionText: String? = null
+)

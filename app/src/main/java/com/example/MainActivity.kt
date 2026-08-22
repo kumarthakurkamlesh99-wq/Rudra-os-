@@ -98,9 +98,22 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun RudraLifeOsApp(viewModel: RudraViewModel) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val currentScreen by viewModel.currentScreen.collectAsState()
     val isLowEnergy by viewModel.isLowEnergyMode.collectAsState()
+    val dbErrorMessage by viewModel.databaseErrorMessage.collectAsState()
+
+    LaunchedEffect(dbErrorMessage) {
+        dbErrorMessage?.let { msg ->
+            snackbarHostState.showSnackbar(
+                message = msg,
+                actionLabel = "OK",
+                duration = SnackbarDuration.Long
+            )
+            viewModel.clearDatabaseError()
+        }
+    }
 
     // Handle Back Button Gracefully
     BackHandler(enabled = drawerState.isOpen || currentScreen !is Screen.Dashboard) {
@@ -128,6 +141,7 @@ fun RudraLifeOsApp(viewModel: RudraViewModel) {
     ) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
+            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             topBar = {
                 RudraTopAppBar(
                     currentScreen = currentScreen,

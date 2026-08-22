@@ -16,6 +16,9 @@ interface JournalDao {
     @Query("SELECT * FROM journal_entries WHERE dateString = :dateString LIMIT 1")
     fun getEntryForDate(dateString: String): Flow<JournalEntryEntity?>
 
+    @Query("SELECT * FROM journal_entries WHERE dateString = :dateString LIMIT 1")
+    suspend fun getEntryForDateSync(dateString: String): JournalEntryEntity?
+
     @Query("SELECT * FROM journal_entries WHERE isWeeklyReview = 1 ORDER BY dateString DESC")
     fun getWeeklyReviews(): Flow<List<JournalEntryEntity>>
 
